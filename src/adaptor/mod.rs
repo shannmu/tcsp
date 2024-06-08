@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use bitflags::bitflags;
 
 pub(crate) mod can;
+pub(crate) mod uart;
 
 #[async_trait]
 pub trait DeviceAdaptor {
