@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-trait = "0.1.80"
+futures-util = "0.3.30"
+socketcan = {version = "3.3.0", features = ["tokio"]}
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
