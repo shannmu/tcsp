@@ -7,8 +7,8 @@ pub(crate) mod can;
 
 #[async_trait]
 pub trait DeviceAdaptor {
-    async fn send(&self, buf: Box<[u8]>);
-    async fn recv(&self) -> Box<[u8]>;
+    async fn send(&self, frame:Frame);
+    async fn recv(&self) -> Option<Frame>;
 }
 
 const FRAME_MAX_LENGTH: usize = 150;
@@ -18,7 +18,8 @@ const FRAME_DEFAULT_START_OFFSET: u8 = 8;
 
 #[derive(Debug)]
 struct FrameMeta {
-    id: u8,
+    src_id: u8,
+    dest_id: u8,
     len: u8,
     flag : FrameFlag
 }
