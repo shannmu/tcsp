@@ -1,8 +1,85 @@
-extern crate nom;
+use std::os::fd::{AsFd, AsRawFd};
+
+use async_trait::async_trait;
 
 use nom::{
-    bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, Err, IResult,
+    bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, IResult,
 };
+
+use tokio::fs::{File, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use termios;
+use libc;
+use nix::fcntl;
+use nix::unistd;
+
+use super::DeviceAdaptor;
+
+struct Uart<'a> {
+    device_name: &'a str,
+    baud_rate: u32,
+}
+
+#[async_trait]
+impl<'a> DeviceAdaptor for Uart<'a> {
+    async fn send(&self, buf: Box<[u8]>) {
+        // 1. open the uart device
+        let mut opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(self.device_name).await.unwrap();
+        let fd = opt.as_fd().as_raw_fd();
+
+        // 2. get the mode of fd
+        let mut old_termios = termios::Termios::from_fd(fd).unwrap();
+        termios::tcgetattr(fd, &mut old_termios).unwrap();
+
+        // 3. flush the input and output buf
+        termios::tcflush(fd, termios::TCIFLUSH).unwrap();
+
+        // 4. set the new mode of fd, including baud rate
+        let mut new_termios = old_termios;
+        new_termios.c_cflag = termios::os::linux::B230400 | termios::CS8 | termios::CLOCAL | termios::CREAD | termios::CSTOPB;
+        termios::tcsetattr(fd, termios::TCSANOW, &mut new_termios);
+
+        // 5. write the data to the uart device
+        opt.write(&buf);
+    }
+
+    async fn recv(&self) -> Box<[u8]> {
+        // Listen to the uart device, and return the data
+        // 1. open the uart device
+        let mut opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(self.device_name).await.unwrap();
+        let fd = opt.as_fd().as_raw_fd();
+
+        set_blocking(fd);
+
+        unistd::isatty(fd);
+
+        // 2. read the data from the uart device
+        let mut buf = [0u8; 1024];
+        let n = opt.read(&mut buf);
+
+        // 3. return the data
+        Box::new(buf)
+    }
+}
+
+fn set_blocking(fd: std::os::fd::RawFd) -> nix::Result<()> {
+    // 获取当前的文件状态标志
+    let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFL)?;
+    
+    // 清除非阻塞标志
+    let mut new_flags: fcntl::OFlag = fcntl::OFlag::from_bits_truncate(flags);
+    new_flags.remove(fcntl::OFlag::O_NONBLOCK);
+
+    // 设置新的文件状态标志
+    fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFL(new_flags))?;
+    Ok(())
+}
+
+
+
+
+
+
 
 #[derive(Debug, PartialEq, Eq)]
 enum CommandType {
