@@ -1,4 +1,5 @@
 use std::os::fd::{AsFd, AsRawFd};
+use std::convert::Into;
 
 use async_trait::async_trait;
 
@@ -14,17 +15,18 @@ use nix::fcntl;
 use nix::unistd;
 use crc32fast::Hasher;
 
-use super::DeviceAdaptor;
+use super::{DeviceAdaptor, Frame, FrameFlag};
 
 struct Uart<'a> {
     device_name: &'a str,
     baud_rate: u32,
+    req_id: u8,
+
 }
 
 #[async_trait]
 impl<'a> DeviceAdaptor for Uart<'a> {
-    /// 
-    async fn send(&self, buf: Box<[u8]>) {
+    async fn send(&self, buf: super::Frame) -> Result<(), super::DeviceAdaptorError> {
         // 1. open the uart device
         let mut opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(self.device_name).await.unwrap();
         let fd = opt.as_fd().as_raw_fd();
@@ -42,10 +44,28 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         termios::tcsetattr(fd, termios::TCSANOW, &mut new_termios);
 
         // 5. write the data to the uart device
-        opt.write(&buf);
+        buf.expand_head(8);
+        buf.expand_tail(1);
+        let data = buf.data_mut();
+        let hasher = Hasher::new();
+
+        data[0] = 0xEB;
+        data[1] = 0x90;
+        data[2] = 0x01;
+        data[3..5].copy_from_slice(&buf.meta.len.to_be_bytes());
+        // TODO: unknown here
+        data[5] = 0x35;
+        data[6] = 0x10;
+        data[7] = self.req_id;
+
+        hasher.update(&data[3..data.len()-1]);
+        data[data.len() - 1] = hasher.finalize() as u8;
+
+        opt.write(&data);
+        Ok(())
     }
 
-    async fn recv(&self) -> Box<[u8]> {
+    async fn recv(&self) -> Result<super::Frame, super::DeviceAdaptorError> {
         // Listen to the uart device, and return the data
         // 1. open the uart device
         let mut opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(self.device_name).await.unwrap();
@@ -57,10 +77,18 @@ impl<'a> DeviceAdaptor for Uart<'a> {
 
         // 2. read the data from the uart device
         let mut buf = [0u8; 1024];
-        let n = opt.read(&mut buf);
+        let n = opt.read(&mut buf).await.unwrap();
 
         // 3. return the data
-        Box::new(buf)
+        let mut ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n]).unwrap().1;
+        let mut frame: Frame;
+        frame.meta.len = ty_uart.data_len;
+        frame.meta.dest_id = ty_uart.platform_id;
+        frame.meta.id = ty_uart.req_id;
+        frame.meta.flag = FrameFlag::default();
+        frame.data_mut().copy_from_slice(&ty_uart.data);
+        
+        Ok(frame)
     }
 }
 
@@ -113,6 +141,19 @@ enum TeleMetry {
 enum Command {
     TeleCommand(TeleCommand),
     TeleMetry(TeleMetry),
+}
+
+impl Into<u8> for Command {
+    fn into(self) -> u8 {
+        match self {
+            Command::TeleCommand(TeleCommand::BasicTeleCommand) => 0x10,
+            Command::TeleCommand(TeleCommand::GeneralTeleCommand) => 0x11,
+            Command::TeleCommand(TeleCommand::UDPTeleCommnadBackup) => 0x12,
+            Command::TeleCommand(TeleCommand::UARTQuickTeleCommand) => 0x20,
+            Command::TeleMetry(TeleMetry::UDPTeleMetryBackup) => 0x22,
+            Command::TeleMetry(TeleMetry::CANTeleMetryBackup) => 0x23,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -261,7 +302,17 @@ impl TyUartProtocol {
 
 impl TyUartProtocol {
     pub fn from_self_to_slice(&self) -> Vec<u8> {
-        unimplemented!()
+        let mut result = Vec::new();
+        result.extend_from_slice(&(self.header as u16).to_be_bytes());
+        result.extend_from_slice(&self.platform_id.to_be_bytes());
+        result.extend_from_slice(&self.data_len.to_be_bytes());
+        result.extend_from_slice(&(self.data_type as u8).to_be_bytes());
+        let command_type: u8 = self.command_type.into();
+        result.extend_from_slice(&command_type.to_be_bytes());
+        result.extend_from_slice(&self.req_id.to_be_bytes());
+        result.extend_from_slice(&self.data);
+        result.extend_from_slice(&self.checksum.to_be_bytes());
+        result
     }
 }
 

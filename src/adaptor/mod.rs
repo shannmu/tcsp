@@ -16,19 +16,19 @@ pub trait DeviceAdaptor {
 const FRAME_MAX_LENGTH: usize = 150;
 const FRAME_PADDING: usize = 18;
 const FRAME_DATA_LENGTH: usize = FRAME_MAX_LENGTH + FRAME_PADDING;
-const FRAME_DEFAULT_START_OFFSET: u8 = 8;
+const FRAME_DEFAULT_START_OFFSET: u16 = 8;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct FrameMeta {
     src_id: u8,
     dest_id: u8,
     id: u8,
-    len: u8,
+    len: u16,
     flag: FrameFlag,
 }
 
 bitflags! {
-    #[derive(Debug,Clone,Copy)]
+    #[derive(Debug,Clone,Copy,Default)]
     pub(crate) struct FrameFlag: u8 {
         const CanTimeBroadcast = 1;
         const UartTelemetry = 1<<2;
@@ -38,7 +38,7 @@ bitflags! {
 #[derive(Debug)]
 pub(crate) struct Frame {
     meta: FrameMeta,
-    offset: u8,
+    offset: u16,
     data: Box<[u8; FRAME_DATA_LENGTH]>,
 }
 
@@ -59,8 +59,8 @@ impl Frame {
         self.meta.len as usize
     }
 
-    pub(crate) fn set_len(&mut self, len: u8) -> io::Result<()> {
-        if len > FRAME_DATA_LENGTH as u8 {
+    pub(crate) fn set_len(&mut self, len: u16) -> io::Result<()> {
+        if len > FRAME_DATA_LENGTH as u16 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "set_len"));
         }
         self.meta.len = len;
@@ -68,7 +68,7 @@ impl Frame {
     }
 
     pub(crate) fn expand_head(&mut self, len: usize) -> io::Result<()> {
-        let len = len as u8;
+        let len = len as u16;
         if self.offset < len {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "expand_head"));
         }
@@ -78,8 +78,8 @@ impl Frame {
     }
 
     pub(crate) fn expand_tail(&mut self, len: usize) -> io::Result<()> {
-        let len = len as u8;
-        if self.meta.len + len > FRAME_DATA_LENGTH as u8 {
+        let len = len as u16;
+        if self.meta.len + len > FRAME_DATA_LENGTH as u16 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "expand_tail"));
         }
         self.meta.len += len;
