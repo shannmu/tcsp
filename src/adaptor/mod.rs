@@ -2,14 +2,15 @@ use std::io;
 
 use async_trait::async_trait;
 use bitflags::bitflags;
+use thiserror::Error;
 
 pub(crate) mod can;
 pub(crate) mod uart;
 
 #[async_trait]
 pub trait DeviceAdaptor {
-    async fn send(&self, frame:Frame);
-    async fn recv(&self) -> Option<Frame>;
+    async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
+    async fn recv(&self) -> Result<Frame, DeviceAdaptorError>;
 }
 
 const FRAME_MAX_LENGTH: usize = 150;
@@ -21,11 +22,12 @@ const FRAME_DEFAULT_START_OFFSET: u8 = 8;
 struct FrameMeta {
     src_id: u8,
     dest_id: u8,
+    id: u8,
     len: u8,
-    flag : FrameFlag
+    flag: FrameFlag,
 }
 
-bitflags!{
+bitflags! {
     #[derive(Debug,Clone,Copy)]
     pub(crate) struct FrameFlag: u8 {
         const CanTimeBroadcast = 1;
@@ -34,7 +36,7 @@ bitflags!{
 }
 
 #[derive(Debug)]
-struct Frame {
+pub(crate) struct Frame {
     meta: FrameMeta,
     offset: u8,
     data: Box<[u8; FRAME_DATA_LENGTH]>,
@@ -47,15 +49,25 @@ impl Frame {
             offset: FRAME_DEFAULT_START_OFFSET,
             data: Box::new([0u8; FRAME_DATA_LENGTH]),
         };
-        frame.data[FRAME_DEFAULT_START_OFFSET.into()..].copy_from_slice(&data);
+        frame.data
+            [FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
+            .copy_from_slice(&data);
         frame
     }
 
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.meta.len as usize
     }
 
-    fn expand_head(&mut self,len:usize) -> io::Result<()>{
+    pub(crate) fn set_len(&mut self, len: u8) -> io::Result<()> {
+        if len > FRAME_DATA_LENGTH as u8 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "set_len"));
+        }
+        self.meta.len = len;
+        Ok(())
+    }
+
+    pub(crate) fn expand_head(&mut self, len: usize) -> io::Result<()> {
         let len = len as u8;
         if self.offset < len {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "expand_head"));
@@ -64,8 +76,8 @@ impl Frame {
         self.meta.len += len;
         Ok(())
     }
-    
-    fn expand_tail(&mut self,len:usize) -> io::Result<()>{
+
+    pub(crate) fn expand_tail(&mut self, len: usize) -> io::Result<()> {
         let len = len as u8;
         if self.meta.len + len > FRAME_DATA_LENGTH as u8 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "expand_tail"));
@@ -74,15 +86,38 @@ impl Frame {
         Ok(())
     }
 
-    fn data(&self) -> &[u8] {
+    pub(crate) fn data(&self) -> &[u8] {
         let start = self.offset as usize;
         let end = start + self.meta.len as usize;
         &self.data[start..end]
     }
 
-    fn data_mut(&mut self) -> &mut [u8] {
+    pub(crate) fn data_mut(&mut self) -> &mut [u8] {
         let start = self.offset as usize;
         let end = start + self.meta.len as usize;
         &mut self.data[start..end]
+    }
+}
+
+#[derive(Error, Debug)]
+pub(crate) enum DeviceAdaptorError {
+    #[error("Frame construct error")]
+    FrameError(String),
+
+    #[error("Bus error")]
+    BusError(Box<dyn std::error::Error>),
+
+    #[error("No data available now")]
+    Empty,
+}
+
+impl From<socketcan::Error> for DeviceAdaptorError {
+    fn from(error: socketcan::Error) -> Self {
+        Self::BusError(Box::new(error))
+    }
+}
+impl From<io::Error> for DeviceAdaptorError {
+    fn from(error: io::Error) -> Self {
+        Self::BusError(Box::new(error))
     }
 }
