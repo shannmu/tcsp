@@ -512,8 +512,10 @@ dependencies = [
  "bitfield",
  "bitflags 2.5.0",
  "futures-util",
+ "log",
  "num_enum",
  "socketcan",
+ "thiserror",
  "tokio",
 ]
 
