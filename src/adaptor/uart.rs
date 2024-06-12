@@ -12,6 +12,7 @@ use termios;
 use libc;
 use nix::fcntl;
 use nix::unistd;
+use crc32fast::Hasher;
 
 use super::DeviceAdaptor;
 
@@ -22,6 +23,7 @@ struct Uart<'a> {
 
 #[async_trait]
 impl<'a> DeviceAdaptor for Uart<'a> {
+    /// 
     async fn send(&self, buf: Box<[u8]>) {
         // 1. open the uart device
         let mut opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(self.device_name).await.unwrap();
@@ -127,6 +129,7 @@ pub struct TyUartProtocol {
 
 impl TyUartProtocol {
     pub fn from_slice_to_self(input: &[u8]) -> IResult<&[u8], TyUartProtocol> {
+        let original_input = input;
         let (input, (header, platform_id, data_len, data_type, command_type, req_id)) =
             tuple((
                 Self::header_parser,
@@ -140,6 +143,11 @@ impl TyUartProtocol {
         let (input, checksum) = Self::checksum_parser(input)?;
 
         assert_eq!(input.len(), 0, "input is not empty");
+        // check data with crc32
+        let mut hasher = Hasher::new();
+        let crc_data = &original_input[2..original_input.len()-1];
+        hasher.update(crc_data);
+        assert_eq!(hasher.finalize(), checksum as u32, "checksum is not correct");
 
         Ok((
             input,
