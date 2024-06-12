@@ -7,7 +7,7 @@ use thiserror::Error;
 pub(crate) mod can;
 
 #[async_trait]
-pub trait DeviceAdaptor {
+pub(crate) trait DeviceAdaptor {
     async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
     async fn recv(&self) -> Result<Frame, DeviceAdaptorError>;
 }
@@ -17,7 +17,7 @@ const FRAME_PADDING: usize = 18;
 const FRAME_DATA_LENGTH: usize = FRAME_MAX_LENGTH + FRAME_PADDING;
 const FRAME_DEFAULT_START_OFFSET: u8 = 8;
 
-#[derive(Debug)]
+#[derive(Debug,Default)]
 struct FrameMeta {
     src_id: u8,
     dest_id: u8,
@@ -27,7 +27,7 @@ struct FrameMeta {
 }
 
 bitflags! {
-    #[derive(Debug,Clone,Copy)]
+    #[derive(Debug,Clone,Copy,Default)]
     pub(crate) struct FrameFlag: u8 {
         const CanTimeBroadcast = 1;
         const UartTelemetry = 1<<2;
@@ -51,6 +51,7 @@ impl Frame {
         frame.data
             [FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
             .copy_from_slice(&data);
+        frame.meta.len = data.len() as u8;
         frame
     }
 
