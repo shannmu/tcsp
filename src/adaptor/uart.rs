@@ -7,6 +7,7 @@ use nom::{
     bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, IResult,
 };
 
+use socketcan::frame;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use termios;
@@ -48,6 +49,8 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         buf.expand_head(8);
         buf.expand_tail(1);
         let meta_len = buf.meta.len;
+        let meta_data_type = buf.meta.data_type;
+        let meta_command_type = buf.meta.command_type;
 
         let data = buf.data_mut();
         let mut hasher = Hasher::new();
@@ -56,9 +59,8 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         data[1] = 0x90;
         data[2] = 0x01;
         data[3..5].copy_from_slice(&meta_len.to_be_bytes());
-        // TODO: unknown here
-        data[5] = 0x35;
-        data[6] = 0x10;
+        data[5] = meta_data_type;
+        data[6] = meta_command_type;
         data[7] = self.req_id;
 
         hasher.update(&data[3..data.len()-1]);
@@ -89,6 +91,8 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         framemeta.len = ty_uart.data_len;
         framemeta.dest_id = ty_uart.platform_id;
         framemeta.id = ty_uart.req_id;
+        framemeta.data_type = ty_uart.data_type as u8;
+        framemeta.command_type = ty_uart.command_type.into();
         framemeta.flag = FrameFlag::default();
         let frame = Frame::new(framemeta, &ty_uart.data);
         

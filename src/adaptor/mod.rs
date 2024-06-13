@@ -24,6 +24,8 @@ pub(crate) struct FrameMeta {
     dest_id: u8,
     id: u8,
     len: u16,
+    data_type: u8,
+    command_type: u8,
     flag: FrameFlag,
 }
 
