@@ -98,6 +98,14 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         
         Ok(frame)
     }
+
+    fn mtu(&self, flag: FrameFlag) -> usize {
+        if matches!(flag, FrameFlag::UartTelemetry){
+            150
+        } else {
+            128
+        }
+    }
 }
 
 fn set_blocking(fd: std::os::fd::RawFd) -> nix::Result<()> {

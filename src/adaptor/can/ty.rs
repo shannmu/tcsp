@@ -242,7 +242,7 @@ impl DeviceAdaptor for TyCanProtocol{
         Ok(())
     }
 
-    fn mtu(&self) -> usize{
+    fn mtu(&self, _flag: FrameFlag) -> usize{
         TY_CAN_PROTOCOL_PAYLOAD_MAX_SIZE
     }
 }

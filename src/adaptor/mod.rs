@@ -11,7 +11,7 @@ pub(crate) mod uart;
 pub(crate) trait DeviceAdaptor {
     async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
     async fn recv(&self) -> Result<Frame, DeviceAdaptorError>;
-    fn mtu(&self) -> usize;
+    fn mtu(&self, flag: FrameFlag) -> usize;
 }
 
 const FRAME_MAX_LENGTH: usize = 150;
@@ -31,7 +31,7 @@ struct FrameMeta {
 }
 
 bitflags! {
-    #[derive(Debug,Clone,Copy,Default)]
+    #[derive(Debug,Clone,Copy,Default, PartialEq, Eq)]
     pub(crate) struct FrameFlag: u8 {
         const CanTimeBroadcast = 1;
         const UartTelemetry = 1<<2;
