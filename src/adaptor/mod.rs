@@ -10,12 +10,13 @@ pub(crate) mod can;
 pub(crate) trait DeviceAdaptor {
     async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
     async fn recv(&self) -> Result<Frame, DeviceAdaptorError>;
+    fn mtu(&self) -> usize;
 }
 
 const FRAME_MAX_LENGTH: usize = 150;
 const FRAME_PADDING: usize = 18;
 const FRAME_DATA_LENGTH: usize = FRAME_MAX_LENGTH + FRAME_PADDING;
-const FRAME_DEFAULT_START_OFFSET: u8 = 8;
+const FRAME_DEFAULT_START_OFFSET: u8 = 16;
 
 #[derive(Debug,Default)]
 struct FrameMeta {

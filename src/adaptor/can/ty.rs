@@ -1,14 +1,18 @@
-use crate::adaptor::DeviceAdaptorError;
+use crate::adaptor::{DeviceAdaptor, DeviceAdaptorError};
 
 use super::super::{Frame as TcspFrame, FrameFlag, FrameMeta};
+use async_trait::async_trait;
 use bitfield::bitfield;
 use futures_util::StreamExt;
 use num_enum::TryFromPrimitive;
+use socketcan::Socket;
 use socketcan::{
     tokio::AsyncCanSocket, CanDataFrame, CanFilter, CanFrame, CanSocket, EmbeddedFrame, ExtendedId,
     Frame, SocketOptions,
 };
+use std::cell::{RefCell, UnsafeCell};
 use std::sync::atomic::AtomicU8;
+use std::sync::Mutex;
 use std::{
     io::{self, ErrorKind},
     mem::size_of,
@@ -128,12 +132,33 @@ impl TyMultiFrameHeader {
 /// Tianyi can protocol
 pub(crate) struct TyCanProtocol {
     src_id: u8,
-    slot_map: [Slot; RECV_BUF_SLOT_NUM], // 20KB
-    socket_rx: AsyncCanSocket<CanSocket>,
+    slot_map: RecvBuf, // 20KB
+    socket_rx: CanSocket,
     socket_tx: AsyncCanSocket<CanSocket>,
     id_counter: AtomicU8,
 }
 
+/// Safety: Receive packets are all in order. Only one can frame is received simultaneously.
+struct RecvBuf{
+    buf : UnsafeCell<[Slot; RECV_BUF_SLOT_NUM]>
+}
+
+unsafe impl Send for RecvBuf{}
+unsafe impl Sync for RecvBuf{}
+
+impl Default for RecvBuf{
+    fn default() -> Self {
+        Self { buf: UnsafeCell::new([Slot::default(); RECV_BUF_SLOT_NUM]) }
+    }
+}
+impl RecvBuf{
+    unsafe fn get_mut_unchecked(&self,idx : usize) -> &mut Slot{
+        let buf = unsafe{
+            &mut *self.buf.get()
+        };
+        buf.get_mut(idx).unwrap()
+    }
+}
 #[derive(TryFromPrimitive)]
 #[repr(u8)]
 enum TyCanProtocolFrameType {
@@ -146,32 +171,17 @@ enum TyCanProtocolFrameType {
     Unknown = 0b1111,
 }
 
-impl TyCanProtocol {
-    pub(crate) fn new(id: u8, socket_rx_name: &str, socket_tx_name: &str) -> io::Result<Self> {
-        let socket_rx = AsyncCanSocket::open(socket_rx_name)?;
-        let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
-        socket_rx.set_filters(&[CanFilter::new(
-            (id as u32) << TY_CAN_ID_OFFSET,
-            TY_CAN_ID_FILTER_MASK,
-        )])?;
-        Ok(Self {
-            src_id: id,
-            slot_map: [Slot::default(); RECV_BUF_SLOT_NUM],
-            socket_rx,
-            socket_tx,
-            id_counter: AtomicU8::new(0),
-        })
-    }
-
-    pub(crate) async fn recv(&mut self) -> Result<TcspFrame, DeviceAdaptorError> {
-        if let Some(Ok(CanFrame::Data(frame))) = self.socket_rx.next().await {
-            recv(&mut self.slot_map, &frame).ok_or(DeviceAdaptorError::Empty)
+#[async_trait]
+impl DeviceAdaptor for TyCanProtocol{
+    async fn recv(&self) -> Result<TcspFrame, DeviceAdaptorError> {
+        if let Ok(CanFrame::Data(frame)) = self.socket_rx.read_frame() {
+            recv(&self.slot_map, &frame).ok_or(DeviceAdaptorError::Empty)
         } else {
             Err(DeviceAdaptorError::Empty)
         }
     }
 
-    pub(crate) async fn send(&mut self, mut frame: TcspFrame) -> Result<(), DeviceAdaptorError> {
+    async fn send(&self, mut frame: TcspFrame) -> Result<(), DeviceAdaptorError> {
         let len = frame.meta.len;
         let mut new_id = TyCanId(0);
         new_id.set_src_id(self.src_id);
@@ -231,6 +241,28 @@ impl TyCanProtocol {
         }
         Ok(())
     }
+
+    fn mtu(&self) -> usize{
+        TY_CAN_PROTOCOL_PAYLOAD_MAX_SIZE
+    }
+}
+
+impl TyCanProtocol {
+    pub(crate) fn new(id: u8, socket_rx_name: &str, socket_tx_name: &str) -> io::Result<Self> {
+        let socket_rx = CanSocket::open(socket_rx_name)?;
+        let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
+        socket_rx.set_filters(&[CanFilter::new(
+            (id as u32) << TY_CAN_ID_OFFSET,
+            TY_CAN_ID_FILTER_MASK,
+        )])?;
+        Ok(Self {
+            src_id: id,
+            slot_map: RecvBuf::default(),
+            socket_rx,
+            socket_tx,
+            id_counter: AtomicU8::new(0),
+        })
+    }
 }
 
 fn attach_single_frame_hdr(frame: &mut TcspFrame) {
@@ -260,7 +292,7 @@ fn get_checksum(buf: &[u8]) -> u8 {
     sum
 }
 
-fn recv(slot_map: &mut [Slot; RECV_BUF_SLOT_NUM], frame: &CanDataFrame) -> Option<TcspFrame> {
+fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
     let ty_can_id = TyCanId(frame.raw_id());
     let is_csp = ty_can_id.get_is_csp();
     if is_csp {
@@ -307,7 +339,7 @@ fn recv(slot_map: &mut [Slot; RECV_BUF_SLOT_NUM], frame: &CanDataFrame) -> Optio
                         log::error!("multi frame total len is too small");
                         return None;
                     }
-                    let slot = &mut slot_map[idx as usize];
+                    let slot = unsafe{slot_map.get_mut_unchecked(idx.into())};
                     // 3 include total_len(2B) and checksum(1B)
                     slot.set_total_len((hdr.total_len() + 3) as u8).unwrap();
                     let _ = slot.copy_from_slice(frame.data());
@@ -321,7 +353,7 @@ fn recv(slot_map: &mut [Slot; RECV_BUF_SLOT_NUM], frame: &CanDataFrame) -> Optio
             }
         }
         TyCanProtocolFrameType::MultiMiddle => {
-            let slot = &mut slot_map[idx as usize];
+            let slot = unsafe{slot_map.get_mut_unchecked(idx.into())};
             let _ = slot.copy_from_slice(frame.data());
 
             if slot.is_complete() {
@@ -333,7 +365,7 @@ fn recv(slot_map: &mut [Slot; RECV_BUF_SLOT_NUM], frame: &CanDataFrame) -> Optio
                         src_id,
                         dest_id,
                         id: idx,
-                        len: (slot.total_len() as usize - size_of::<TyMultiFrameHeader>() - 1)
+                        len: (total_len as usize - size_of::<TyMultiFrameHeader>() - 1)
                             as u8,
                         flag: FrameFlag::empty(),
                     };
@@ -368,7 +400,7 @@ mod tests {
 
     use crate::adaptor::{
         can::ty::{
-            attach_multi_frame_hdr_and_checksum, TY_CAN_ID_FILTER_MASK, TY_CAN_ID_OFFSET, TY_CAN_PROTOCOL_TYPE_OBC_REQUEST, TY_CAN_PROTOCOL_TYPE_RESPONSE, TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST, TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE, TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST, TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE
+            attach_multi_frame_hdr_and_checksum, RecvBuf, TY_CAN_ID_FILTER_MASK, TY_CAN_ID_OFFSET, TY_CAN_PROTOCOL_TYPE_OBC_REQUEST, TY_CAN_PROTOCOL_TYPE_RESPONSE, TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST, TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE, TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST, TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE
         }, Frame, FrameFlag, FrameMeta
     };
 
@@ -422,8 +454,8 @@ mod tests {
             0x08,
         ];
         let frame: CanDataFrame = CanDataFrame::new(can_id, &data).unwrap();
-        let mut slot_map = [super::super::slot::Slot::default(); super::RECV_BUF_SLOT_NUM];
-        let frame = super::recv(&mut slot_map, &frame).unwrap();
+        let mut slot_map = RecvBuf::default();
+        let frame = super::recv(&slot_map, &frame).unwrap();
         assert_eq!(frame.len(), 6);
         assert_eq!(frame.meta.src_id, 0);
         assert_eq!(frame.meta.dest_id, 0x2a);
