@@ -1,12 +1,13 @@
 use std::io::{self, ErrorKind};
 
-const SLOT_SIZE: usize = 158;
+const SLOT_SIZE: usize = 157;
 
 #[derive(Clone, Copy)]
 pub(super) struct Slot {
     data: [u8; SLOT_SIZE],
     current_len: u16,
     total_len: u16,
+    is_valid: bool,
 }
 impl Default for Slot {
     fn default() -> Self {
@@ -14,13 +15,15 @@ impl Default for Slot {
             data: [0u8; SLOT_SIZE],
             current_len: 0,
             total_len: 0,
+            is_valid: false,
         }
     }
 }
 impl Slot {
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.current_len = 0;
         self.total_len = 0;
+        self.is_valid = false;
     }
     pub(super) fn total_len(&self) -> u16 {
         self.total_len
@@ -35,6 +38,7 @@ impl Slot {
             return Err(io_invalid_input!(ErrorKind::InvalidInput, "invalid len"));
         }
         self.total_len = len;
+        self.is_valid = true;
         Ok(())
     }
 

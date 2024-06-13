@@ -11,15 +11,16 @@ pub(crate) mod uart;
 pub(crate) trait DeviceAdaptor {
     async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
     async fn recv(&self) -> Result<Frame, DeviceAdaptorError>;
+    fn mtu(&self) -> usize;
 }
 
 const FRAME_MAX_LENGTH: usize = 150;
 const FRAME_PADDING: usize = 18;
 const FRAME_DATA_LENGTH: usize = FRAME_MAX_LENGTH + FRAME_PADDING;
-const FRAME_DEFAULT_START_OFFSET: u16 = 8;
+const FRAME_DEFAULT_START_OFFSET: u16 = 16;
 
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct FrameMeta {
+struct FrameMeta {
     src_id: u8,
     dest_id: u8,
     id: u8,
@@ -54,6 +55,7 @@ impl Frame {
         frame.data
             [FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
             .copy_from_slice(&data);
+        frame.meta.len = data.len() as u16;
         frame
     }
 
