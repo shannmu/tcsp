@@ -9,42 +9,52 @@ use nom::{
 };
 
 
-use tokio::fs::OpenOptions;
+use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use nix::fcntl;
-use nix::unistd;
 use crc32fast::Hasher;
+use tokio::sync::Mutex;
 
 use super::{DeviceAdaptor, Frame, FrameFlag, FrameMeta};
 
-struct Uart<'a> {
-    device_name: &'a str,
-    baud_rate: u32,
+#[derive(Debug)]
+pub(crate) struct Uart {
     req_id: u8,
-
+    file: Mutex<File>
 }
 
-#[async_trait]
-impl<'a> DeviceAdaptor for Uart<'a> {
-    async fn send(&self, buf: super::Frame) -> Result<(), super::DeviceAdaptorError> {
-        let mut buf = buf.clone();
-        // 1. open the uart device
-        let mut opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(self.device_name).await.unwrap();
+
+impl Uart {
+    pub async fn new(device_name: &str, baud_rate: termios::os::linux::speed_t) -> Self {
+        let opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(device_name).await.unwrap();
+
         let fd = opt.as_fd().as_raw_fd();
 
-        // 2. get the mode of fd
+        // get the mode of fd
         let mut old_termios = termios::Termios::from_fd(fd).unwrap();
         termios::tcgetattr(fd, &mut old_termios).unwrap();
 
-        // 3. flush the input and output buf
+        // flush the input and output buf
         termios::tcflush(fd, termios::TCIFLUSH).unwrap();
 
-        // 4. set the new mode of fd, including baud rate
+        // set the new mode of fd, including baud rate
         let mut new_termios = old_termios;
-        new_termios.c_cflag = termios::os::linux::B230400 | termios::CS8 | termios::CLOCAL | termios::CREAD | termios::CSTOPB;
+        new_termios.c_cflag = baud_rate | termios::CS8 | termios::CLOCAL | termios::CREAD | termios::CSTOPB;
         termios::tcsetattr(fd, termios::TCSANOW, &mut new_termios);
 
-        // 5. write the data to the uart device
+        let file = Mutex::new(opt);
+        Self {
+            req_id: 0,
+            file,
+        }
+    }
+}
+
+#[async_trait]
+impl<'a> DeviceAdaptor for Uart {
+    async fn send(&self, buf: super::Frame) -> Result<(), super::DeviceAdaptorError> {
+        let mut buf = buf.clone();
+        
         buf.expand_head(8);
         buf.expand_tail(1);
         let meta_len = buf.meta.len;
@@ -65,25 +75,20 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         hasher.update(&data[3..data.len()-1]);
         data[data.len() - 1] = hasher.finalize() as u8;
 
-        let _ = opt.write(data);
+        self.file.lock().await.write(&data);
         Ok(())
     }
 
     async fn recv(&self) -> Result<super::Frame, super::DeviceAdaptorError> {
-        // Listen to the uart device, and return the data
-        // 1. open the uart device
-        let mut opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(self.device_name).await.unwrap();
-        let fd = opt.as_fd().as_raw_fd();
+        let fd = self.file.lock().await.as_fd().as_raw_fd();
 
         set_blocking(fd);
 
-        unistd::isatty(fd);
-
-        // 2. read the data from the uart device
+        // read the data from the uart device
         let mut buf = [0u8; 1024];
-        let n = opt.read(&mut buf).await.unwrap();
+        let n = self.file.lock().await.read(&mut buf).await.unwrap();
 
-        // 3. return the data
+        // return the data
         let ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n]).unwrap().1;
         let mut framemeta: FrameMeta = FrameMeta::default();
         
