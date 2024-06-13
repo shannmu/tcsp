@@ -7,8 +7,8 @@ use nom::{
     bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, IResult,
 };
 
-use socketcan::frame;
-use tokio::fs::{File, OpenOptions};
+
+use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use termios;
 use libc;
@@ -101,14 +101,14 @@ impl<'a> DeviceAdaptor for Uart<'a> {
 }
 
 fn set_blocking(fd: std::os::fd::RawFd) -> nix::Result<()> {
-    // 获取当前的文件状态标志
+    // get the file status flags
     let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFL)?;
     
-    // 清除非阻塞标志
+    // remove the O_NONBLOCK flag
     let mut new_flags: fcntl::OFlag = fcntl::OFlag::from_bits_truncate(flags);
     new_flags.remove(fcntl::OFlag::O_NONBLOCK);
 
-    // 设置新的文件状态标志
+    // set the new file status flags
     fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFL(new_flags))?;
     Ok(())
 }
@@ -240,7 +240,6 @@ impl TyUartProtocol {
             let mut result = [0u8; 2];
             result.copy_from_slice(input);
             let res: Result<u16, std::num::ParseIntError> = Ok(u16::from_be_bytes(result));
-            println!("data_len_parser: {}", u16::from_be_bytes(result));
             res
         })(input)
     }
