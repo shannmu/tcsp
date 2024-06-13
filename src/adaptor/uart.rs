@@ -1,6 +1,8 @@
 #![allow(clippy::shadow_unrelated,clippy::unwrap_used)]
 use std::os::fd::{AsFd, AsRawFd};
 use std::convert::Into;
+use std::thread::sleep;
+use std::time::Duration;
 
 use async_trait::async_trait;
 
@@ -11,6 +13,8 @@ use nom::{
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use termios;
+use libc::{self};
 use nix::fcntl;
 use crc32fast::Hasher;
 use tokio::sync::Mutex;
@@ -362,6 +366,30 @@ pub fn tyuart_from_slice_to_self_test() {
 }
 
 #[test]
-pub fn tyuart_from_self_to_slice_test() {
+fn tyuart_from_self_to_slice_test() {
     
+}
+
+
+#[tokio::test]
+async fn adaptor_uart() {
+    tokio::spawn(async {
+        let uart = Uart::new("/dev/ttyAMA2", termios::os::linux::B115200).await;
+        let frame = uart.recv().await.unwrap();
+        assert_eq!(frame.meta.len, 0x0008);
+        assert_eq!(frame.meta.data_type, 0x35);
+        assert_eq!(frame.meta.command_type, 0x10);
+        assert!(frame.meta.flag.is_empty());
+        assert_eq!(frame.meta.src_id, 0x01);
+        assert_eq!(frame.meta.dest_id, 0x01);
+        assert_eq!(frame.meta.id, 0x01);
+        assert_eq!(frame.data(), vec![0x02, 0x03, 0x04, 0x05, 0x06]);
+    });
+    
+
+    let uart = Uart::new("/dev/ttyAMA3", termios::os::linux::B115200).await;
+    let frame = Frame::new(FrameMeta::default(), &[0x02, 0x03, 0x04, 0x05, 0x06]);
+    uart.send(frame).await.unwrap();
+
+    sleep(Duration::from_millis(5000));
 }
