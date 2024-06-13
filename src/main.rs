@@ -1,6 +1,6 @@
 use std::env;
 
-use adaptor::can::ty::TyCanProtocol;
+use adaptor::{can::ty::TyCanProtocol};
 use socketcan::{tokio::CanSocket, CanDataFrame, CanFrame, EmbeddedFrame, Id, Result, StandardId};
 use tokio;
 

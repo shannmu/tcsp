@@ -171,14 +171,14 @@ impl TyCanProtocol {
         new_id.set_src_id(self.src_id);
         new_id.set_dest_id(frame.meta.dest_id);
         new_id.set_is_csp(false);
-        if len > TY_CAN_PROTOCOL_MTU as u8 {
+        if len > TY_CAN_PROTOCOL_MTU as u16 {
             return Err(DeviceAdaptorError::FrameError("invalid length".to_owned()));
         }
         let id = self
             .id_counter
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         new_id.set_pid(id);
-        if len <= TY_CAN_PROTOCOL_SINGLE_FRAME_MAX as u8 {
+        if len <= TY_CAN_PROTOCOL_SINGLE_FRAME_MAX as u16 {
             let can_frame = CanFrame::new(
                 ExtendedId::new(new_id.0).unwrap(),
                 &frame.data()[0..len.into()],
@@ -275,7 +275,7 @@ fn recv(slot_map: &mut [Slot; RECV_BUF_SLOT_NUM], frame: &CanDataFrame) -> Optio
                     src_id,
                     dest_id,
                     id : idx,
-                    len: len as u8,
+                    len: len as u16,
                     flag: FrameFlag::empty(),
                 };
             }

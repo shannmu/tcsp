@@ -8,7 +8,7 @@ pub(crate) mod can;
 pub(crate) mod uart;
 
 #[async_trait]
-pub trait DeviceAdaptor {
+pub(crate) trait DeviceAdaptor {
     async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
     async fn recv(&self) -> Result<Frame, DeviceAdaptorError>;
 }
@@ -18,8 +18,8 @@ const FRAME_PADDING: usize = 18;
 const FRAME_DATA_LENGTH: usize = FRAME_MAX_LENGTH + FRAME_PADDING;
 const FRAME_DEFAULT_START_OFFSET: u16 = 8;
 
-#[derive(Debug, Default)]
-struct FrameMeta {
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct FrameMeta {
     src_id: u8,
     dest_id: u8,
     id: u8,
@@ -35,7 +35,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Frame {
     meta: FrameMeta,
     offset: u16,

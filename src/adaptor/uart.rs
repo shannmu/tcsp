@@ -15,7 +15,7 @@ use nix::fcntl;
 use nix::unistd;
 use crc32fast::Hasher;
 
-use super::{DeviceAdaptor, Frame, FrameFlag};
+use super::{DeviceAdaptor, Frame, FrameFlag, FrameMeta};
 
 struct Uart<'a> {
     device_name: &'a str,
@@ -27,6 +27,7 @@ struct Uart<'a> {
 #[async_trait]
 impl<'a> DeviceAdaptor for Uart<'a> {
     async fn send(&self, buf: super::Frame) -> Result<(), super::DeviceAdaptorError> {
+        let mut buf = buf.clone();
         // 1. open the uart device
         let mut opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(self.device_name).await.unwrap();
         let fd = opt.as_fd().as_raw_fd();
@@ -46,13 +47,15 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         // 5. write the data to the uart device
         buf.expand_head(8);
         buf.expand_tail(1);
+        let meta_len = buf.meta.len;
+
         let data = buf.data_mut();
-        let hasher = Hasher::new();
+        let mut hasher = Hasher::new();
 
         data[0] = 0xEB;
         data[1] = 0x90;
         data[2] = 0x01;
-        data[3..5].copy_from_slice(&buf.meta.len.to_be_bytes());
+        data[3..5].copy_from_slice(&meta_len.to_be_bytes());
         // TODO: unknown here
         data[5] = 0x35;
         data[6] = 0x10;
@@ -80,13 +83,14 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         let n = opt.read(&mut buf).await.unwrap();
 
         // 3. return the data
-        let mut ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n]).unwrap().1;
-        let mut frame: Frame;
-        frame.meta.len = ty_uart.data_len;
-        frame.meta.dest_id = ty_uart.platform_id;
-        frame.meta.id = ty_uart.req_id;
-        frame.meta.flag = FrameFlag::default();
-        frame.data_mut().copy_from_slice(&ty_uart.data);
+        let ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n]).unwrap().1;
+        let mut framemeta: FrameMeta = FrameMeta::default();
+        
+        framemeta.len = ty_uart.data_len;
+        framemeta.dest_id = ty_uart.platform_id;
+        framemeta.id = ty_uart.req_id;
+        framemeta.flag = FrameFlag::default();
+        let frame = Frame::new(framemeta, &ty_uart.data);
         
         Ok(frame)
     }
@@ -111,19 +115,19 @@ fn set_blocking(fd: std::os::fd::RawFd) -> nix::Result<()> {
 
 
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum CommandType {
     TeleCommand = 0x35,
     TeleMetry = 0x05,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Header {
     Header = 0xEB90,
     Other,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum TeleCommand {
     BasicTeleCommand = 0x10,
     GeneralTeleCommand = 0x11,
@@ -131,13 +135,13 @@ enum TeleCommand {
     UARTQuickTeleCommand = 0x20,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum TeleMetry {
     UDPTeleMetryBackup = 0x22,
     CANTeleMetryBackup = 0x23,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Command {
     TeleCommand(TeleCommand),
     TeleMetry(TeleMetry),

@@ -5,8 +5,8 @@ const SLOT_SIZE: usize = 158;
 #[derive(Clone, Copy)]
 pub(super) struct Slot {
     data: [u8; SLOT_SIZE],
-    current_len: u8,
-    total_len: u8,
+    current_len: u16,
+    total_len: u16,
 }
 impl Default for Slot {
     fn default() -> Self {
@@ -22,7 +22,7 @@ impl Slot {
         self.current_len = 0;
         self.total_len = 0;
     }
-    pub(super) fn total_len(&self) -> u8 {
+    pub(super) fn total_len(&self) -> u16 {
         self.total_len
     }
 
@@ -30,8 +30,8 @@ impl Slot {
         &self.data[..self.total_len as usize]
     }
 
-    pub(super) fn set_total_len(&mut self, len: u8) -> io::Result<()> {
-        if len > SLOT_SIZE as u8 {
+    pub(super) fn set_total_len(&mut self, len: u16) -> io::Result<()> {
+        if len > SLOT_SIZE as u16 {
             return Err(io_invalid_input!(ErrorKind::InvalidInput, "invalid len"));
         }
         self.total_len = len;
@@ -44,7 +44,7 @@ impl Slot {
             return Err(io_invalid_input!(ErrorKind::InvalidInput, "overflow"));
         }
         self.data[current_len..current_len + src.len()].copy_from_slice(src);
-        self.current_len += src.len() as u8;
+        self.current_len += src.len() as u16;
         Ok(())
     }
 
