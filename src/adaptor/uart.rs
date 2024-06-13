@@ -11,6 +11,7 @@ use nom::{
 };
 
 
+use serialport::SerialPort;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use termios;
@@ -24,32 +25,34 @@ use super::{DeviceAdaptor, Frame, FrameFlag, FrameMeta};
 #[derive(Debug)]
 pub(crate) struct Uart {
     req_id: u8,
-    file: Mutex<File>
+    file: Mutex<Box<dyn SerialPort>>
 }
 
 
 impl Uart {
-    pub async fn new(device_name: &str, baud_rate: termios::os::linux::speed_t) -> Self {
-        let opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(device_name).await.unwrap();
+    pub async fn new(device_name: &str, baud_rate: usize) -> Self {
+        let port = serialport::new(device_name, baud_rate).open().unwrap();
 
-        let fd = opt.as_fd().as_raw_fd();
+        // let opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(device_name).await.unwrap();
 
-        // get the mode of fd
-        let mut old_termios = termios::Termios::from_fd(fd).unwrap();
-        termios::tcgetattr(fd, &mut old_termios).unwrap();
+        // let fd = opt.as_fd().as_raw_fd();
 
-        // flush the input and output buf
-        termios::tcflush(fd, termios::TCIFLUSH).unwrap();
+        // // get the mode of fd
+        // let mut old_termios = termios::Termios::from_fd(fd).unwrap();
+        // termios::tcgetattr(fd, &mut old_termios).unwrap();
 
-        // set the new mode of fd, including baud rate
-        let mut new_termios = old_termios;
-        new_termios.c_cflag = baud_rate | termios::CS8 | termios::CLOCAL | termios::CREAD | termios::CSTOPB;
-        termios::tcsetattr(fd, termios::TCSANOW, &mut new_termios);
+        // // flush the input and output buf
+        // termios::tcflush(fd, termios::TCIFLUSH).unwrap();
 
-        let file = Mutex::new(opt);
+        // // set the new mode of fd, including baud rate
+        // let mut new_termios = old_termios;
+        // new_termios.c_cflag = baud_rate | termios::CS8 | termios::CLOCAL | termios::CREAD | termios::CSTOPB;
+        // termios::tcsetattr(fd, termios::TCSANOW, &mut new_termios);
+
+        // let file = Mutex::new(opt);
         Self {
             req_id: 0,
-            file,
+            file: Mutex::new(port),
         }
     }
 }
@@ -374,7 +377,7 @@ fn tyuart_from_self_to_slice_test() {
 #[tokio::test]
 async fn adaptor_uart() {
     tokio::spawn(async {
-        let uart = Uart::new("/dev/ttyAMA2", termios::os::linux::B115200).await;
+        let uart = Uart::new("/dev/ttyAMA2", termios::os::linux::B9600).await;
         let frame = uart.recv().await.unwrap();
         assert_eq!(frame.meta.len, 0x0008);
         assert_eq!(frame.meta.data_type, 0x35);
@@ -387,7 +390,7 @@ async fn adaptor_uart() {
     });
     
 
-    let uart = Uart::new("/dev/ttyAMA3", termios::os::linux::B115200).await;
+    let uart = Uart::new("/dev/ttyAMA3", termios::os::linux::B9600).await;
     let frame = Frame::new(FrameMeta::default(), &[0x02, 0x03, 0x04, 0x05, 0x06]);
     uart.send(frame).await.unwrap();
 
