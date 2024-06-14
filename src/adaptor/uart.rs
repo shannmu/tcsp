@@ -34,7 +34,6 @@ const CUSTOM_ALG: crc::Algorithm<u8> = crc::Algorithm {
 
 #[derive(Debug)]
 pub(crate) struct Uart {
-    req_id: u8,
     file: Mutex<Box<dyn SerialPort>>,
 }
 
@@ -45,7 +44,6 @@ impl Uart {
             .open()
             .unwrap();
         Self {
-            req_id: 0,
             file: Mutex::new(port),
         }
     }
@@ -61,6 +59,7 @@ impl<'a> DeviceAdaptor for Uart {
         let meta_len = buf.meta.len;
         let meta_data_type = buf.meta.data_type;
         let meta_command_type = buf.meta.command_type;
+        let meta_req_id = buf.meta.id;
 
         let data = &mut buf.data_mut()[0..(meta_len) as usize];
         let crc = crc::Crc::<u8>::new(&CUSTOM_ALG);
@@ -72,7 +71,7 @@ impl<'a> DeviceAdaptor for Uart {
         data[3..5].copy_from_slice(&(meta_len - 6).to_be_bytes());
         data[5] = meta_data_type;
         data[6] = meta_command_type;
-        data[7] = self.req_id;
+        data[7] = meta_req_id;
 
         hasher.update(&data[3..data.len() - 1]);
         data[data.len() - 1] = hasher.finalize();
