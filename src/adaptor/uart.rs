@@ -11,10 +11,8 @@ use async_trait::async_trait;
 use nom::{bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, IResult};
 
 use crc32fast::Hasher;
-use libc::{self};
 use nix::fcntl;
 use serialport::SerialPort;
-use termios;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
@@ -46,24 +44,6 @@ impl Uart {
             .timeout(Duration::from_millis(5000))
             .open()
             .unwrap();
-
-        // let opt = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY | libc::O_NDELAY).open(device_name).await.unwrap();
-
-        // let fd = opt.as_fd().as_raw_fd();
-
-        // // get the mode of fd
-        // let mut old_termios = termios::Termios::from_fd(fd).unwrap();
-        // termios::tcgetattr(fd, &mut old_termios).unwrap();
-
-        // // flush the input and output buf
-        // termios::tcflush(fd, termios::TCIFLUSH).unwrap();
-
-        // // set the new mode of fd, including baud rate
-        // let mut new_termios = old_termios;
-        // new_termios.c_cflag = baud_rate | termios::CS8 | termios::CLOCAL | termios::CREAD | termios::CSTOPB;
-        // termios::tcsetattr(fd, termios::TCSANOW, &mut new_termios);
-
-        // let file = Mutex::new(opt);
         Self {
             req_id: 0,
             file: Mutex::new(port),
@@ -131,18 +111,6 @@ impl<'a> DeviceAdaptor for Uart {
     }
 }
 
-fn set_blocking(fd: std::os::fd::RawFd) -> nix::Result<()> {
-    // get the file status flags
-    let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFL)?;
-
-    // remove the O_NONBLOCK flag
-    let mut new_flags: fcntl::OFlag = fcntl::OFlag::from_bits_truncate(flags);
-    new_flags.remove(fcntl::OFlag::O_NONBLOCK);
-
-    // set the new file status flags
-    fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFL(new_flags))?;
-    Ok(())
-}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum CommandType {
