@@ -5,9 +5,9 @@ use crate::adaptor::{Frame as BusFrame, FrameMeta};
 const VERSION_ID: u8 = 0x20;
 
 #[repr(C)]
-pub(super) struct FrameHeader {
-    version: u8,
-    application: u8,
+pub(crate) struct FrameHeader {
+    pub(crate) version: u8,
+    pub(crate) application: u8,
 }
 
 impl TryFrom<&[u8]> for FrameHeader {
