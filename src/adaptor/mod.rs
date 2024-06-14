@@ -42,7 +42,7 @@ bitflags! {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Frame {
-    meta: FrameMeta,
+    pub(crate)meta: FrameMeta,
     offset: u16,
     data: Box<[u8; FRAME_DATA_LENGTH]>,
 }
@@ -102,14 +102,6 @@ impl Frame {
         let start = self.offset as usize;
         let end = start + self.meta.len as usize;
         &mut self.data[start..end]
-    }
-
-    pub(crate) fn meta(&self) -> &FrameMeta{
-        &self.meta
-    }
-
-    pub(crate) fn meta_mut(&mut self) -> &mut FrameMeta{
-        &mut self.meta
     }
 }
 

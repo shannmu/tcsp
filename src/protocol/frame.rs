@@ -2,6 +2,8 @@ use std::{io, mem::size_of};
 
 use crate::adaptor::{Frame as BusFrame, FrameMeta};
 
+use super::insert_header;
+
 const VERSION_ID: u8 = 0x20;
 
 #[repr(C)]
@@ -34,7 +36,7 @@ impl TryFrom<&mut [u8]> for &mut FrameHeader {
         unsafe { Ok(&mut *(buf.as_mut_ptr() as *mut FrameHeader)) }
     }
 }
-#[derive(Default)]
+#[derive(Default,Debug)]
 pub(crate) struct Frame {
     bus_frame: BusFrame,
     application_id: u8,
@@ -82,23 +84,24 @@ impl Frame {
 
     pub(super) fn insert_header(&mut self) -> io::Result<()> {
         if !self.hdr_inserted {
-            self.bus_frame.expand_head(size_of::<FrameHeader>())?;
-            let hdr: &mut FrameHeader = self.data_mut().try_into()?;
-            hdr.version = VERSION_ID;
-            hdr.application = self.application_id;
+            insert_header(&mut self.bus_frame, self.application_id)?;
         }
         Ok(())
     }
 
-    pub(crate) fn set_len(&mut self, len: u16) {
-        self.bus_frame.set_len(len);
+    pub(crate) fn set_len(&mut self, len: u16) -> io::Result<()>{
+        self.bus_frame.set_len(len)
     }
 
-    pub(crate) fn upper_meta(&self) -> &FrameMeta{
-        self.bus_frame.meta()
+    pub(crate) fn meta(&self) -> &FrameMeta{
+        &self.bus_frame.meta
     }
 
-    pub(crate) fn upper_meta_mut(&mut self) ->&mut FrameMeta{
-        self.bus_frame.meta_mut()
+    pub(crate) fn meta_mut(&mut self) -> &mut FrameMeta{
+        &mut self.bus_frame.meta
+    }
+
+    pub(crate) fn set_meta(&mut self,meta:&FrameMeta){
+        self.bus_frame.meta = *meta;
     }
 }
