@@ -1,0 +1,37 @@
+{
+    "name": "project-dev",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "service": "vscode",
+    "runServices": [
+        "vscode"
+    ],
+    "workspaceFolder": "/workspace",
+    // "overrideCommand": "",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "tamasfe.even-better-toml", // for Cargo.toml
+                "Gruntfuggly.todo-tree", // Highlights TODO comments
+                "stkb.rewrap", // rewrap comments after n characters on one line
+                "github.vscode-pull-request-github", // Github interaction
+                "IBM.output-colorizer", // Colorize your output/test logs
+                "github.copilot" // AI code completion
+            ],
+            "settings": {
+                "files.eol": "\n",
+                "editor.formatOnSave": true,
+                "editor.codeActionsOnSaveTimeout": 3000,
+                "[rust]": {
+                    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+                },
+                "rust-analyzer.serverPath": "/usr/local/bin/rust-analyzer",
+                "remote.extensionKind": {
+                    "ms-azuretools.vscode-docker": "workspace"
+                },
+            }
+        }
+    }
+}
