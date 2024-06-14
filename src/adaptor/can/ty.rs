@@ -3,7 +3,6 @@ use crate::adaptor::{DeviceAdaptor, DeviceAdaptorError};
 use super::super::{Frame as TcspFrame, FrameFlag, FrameMeta};
 use async_trait::async_trait;
 use bitfield::bitfield;
-use futures_util::StreamExt;
 use num_enum::TryFromPrimitive;
 use socketcan::Socket;
 use socketcan::{
@@ -12,7 +11,6 @@ use socketcan::{
 };
 use std::cell::{RefCell, UnsafeCell};
 use std::sync::atomic::AtomicU8;
-use std::sync::Mutex;
 use std::{
     io::{self, ErrorKind},
     mem::size_of,

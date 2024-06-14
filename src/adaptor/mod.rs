@@ -6,6 +6,7 @@ use thiserror::Error;
 
 pub(crate) mod can;
 pub(crate) mod uart;
+pub(crate) mod channel;
 
 pub(crate) use can::ty::TyCanProtocol;
 
