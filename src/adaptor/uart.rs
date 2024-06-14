@@ -1,6 +1,7 @@
 #![allow(clippy::shadow_unrelated,clippy::unwrap_used)]
 use std::os::fd::{AsFd, AsRawFd};
 use std::convert::Into;
+use std::mem::size_of;
 use std::os::fd::{AsFd, AsRawFd};
 use std::thread::sleep;
 use std::time::Duration;
@@ -17,6 +18,8 @@ use termios;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+
+use crate::protocol;
 
 use super::{DeviceAdaptor, Frame, FrameFlag, FrameMeta};
 
@@ -202,7 +205,7 @@ impl TyUartProtocol {
     pub fn from_slice_to_self(input: &[u8]) -> IResult<&[u8], TyUartProtocol> {
         let original_input = input;
         println!("original_len: {}", original_input.len());
-        let (input, (header, platform_id, data_len, data_type, command_type, req_id)) =
+        let (input, (header, platform_id, mut data_len, data_type, command_type, req_id)) =
             tuple((
                 Self::header_parser,
                 Self::platform_id_parser,
@@ -212,7 +215,7 @@ impl TyUartProtocol {
                 Self::req_id_parser,
             ))(input)?;
         println!("1");
-        let (input, data) = Self::data_parser(input, data_len)?;
+        let (input, mut data) = Self::data_parser(input, data_len)?;
         println!("2");
         let (input, checksum) = Self::checksum_parser(input)?;
         println!("3");
@@ -225,6 +228,17 @@ impl TyUartProtocol {
         let crc_data = &original_input[3..original_input.len() - 1];
         hasher.update(crc_data);
         debug_assert_eq!(hasher.finalize(), checksum, "checksum is not correct");
+            
+        #[cfg(feature = "unstable_add_frameheader")]
+        {
+            let mut raw_header = vec![[0x00u8; 2]];
+            let header  = &mut protocol::FrameHeader::try_from(raw_header.as_mut_slice()).unwrap();
+
+            header.application = 0x00;
+            header.version = 0x20;
+            data.extend(&raw_header);
+            data_len += size_of::<protocol::FrameHeader>();
+        }
 
         Ok((
             input,
