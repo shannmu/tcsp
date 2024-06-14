@@ -7,6 +7,8 @@ use thiserror::Error;
 pub(crate) mod can;
 pub(crate) mod uart;
 
+pub(crate) use can::ty::TyCanProtocol;
+
 #[async_trait]
 pub(crate) trait DeviceAdaptor {
     async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
@@ -20,14 +22,14 @@ const FRAME_DATA_LENGTH: usize = FRAME_MAX_LENGTH + FRAME_PADDING;
 const FRAME_DEFAULT_START_OFFSET: u16 = 16;
 
 #[derive(Debug, Default, Clone, Copy)]
-struct FrameMeta {
-    src_id: u8,
-    dest_id: u8,
-    id: u8,
-    len: u16,
-    data_type: u8,
-    command_type: u8,
-    flag: FrameFlag,
+pub(crate)struct FrameMeta {
+    pub(crate)src_id: u8,
+    pub(crate)dest_id: u8,
+    pub(crate)id: u8,
+    pub(crate)len: u16,
+    pub(crate)data_type: u8,
+    pub(crate)command_type: u8,
+    pub(crate)flag: FrameFlag,
 }
 
 bitflags! {
@@ -100,6 +102,24 @@ impl Frame {
         let start = self.offset as usize;
         let end = start + self.meta.len as usize;
         &mut self.data[start..end]
+    }
+
+    pub(crate) fn meta(&self) -> &FrameMeta{
+        &self.meta
+    }
+
+    pub(crate) fn meta_mut(&mut self) -> &mut FrameMeta{
+        &mut self.meta
+    }
+}
+
+impl Default for Frame {
+    fn default() -> Self {
+        Self {
+            meta: Default::default(),
+            offset: Default::default(),
+            data: Box::new([0u8; FRAME_DATA_LENGTH]),
+        }
     }
 }
 
