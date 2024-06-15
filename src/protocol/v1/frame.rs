@@ -1,8 +1,6 @@
 use std::{io, mem::size_of};
 
-use crate::adaptor::{Frame as BusFrame, FrameMeta};
-
-use super::insert_header;
+use crate::adaptor::{Frame as BusFrame, FrameFlag, FrameMeta};
 
 const VERSION_ID: u8 = 0x20;
 
@@ -16,10 +14,12 @@ impl TryFrom<&[u8]> for FrameHeader {
     type Error = std::io::Error;
 
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
-        // TODO:
-        // if buf.len() < size_of::<FrameHeader>(){
-        //     return Err(());
-        // }
+        if buf.len() < size_of::<FrameHeader>(){
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Buffer not larges enough",
+            ));
+        }
         let hdr: Self = unsafe { std::ptr::read(buf.as_ptr() as *const FrameHeader) };
         Ok(hdr)
     }
@@ -29,15 +29,17 @@ impl TryFrom<&mut [u8]> for &mut FrameHeader {
     type Error = std::io::Error;
 
     fn try_from(buf: &mut [u8]) -> Result<Self, Self::Error> {
-        // TODO:
-        // if buf.len() < size_of::<FrameHeader>(){
-        //     return Err(());
-        // }
+        if buf.len() < size_of::<FrameHeader>(){
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Buffer not larges enough",
+            ));
+        }
         unsafe { Ok(&mut *(buf.as_mut_ptr() as *mut FrameHeader)) }
     }
 }
-#[derive(Default,Debug)]
-pub(crate) struct Frame {
+#[derive(Default, Debug)]
+pub struct Frame {
     bus_frame: BusFrame,
     application_id: u8,
     hdr_inserted: bool,
@@ -45,9 +47,15 @@ pub(crate) struct Frame {
 
 impl TryFrom<BusFrame> for Frame {
     type Error = std::io::Error;
-    fn try_from(bus_frame: BusFrame) -> Result<Self, Self::Error> {
+    fn try_from(mut bus_frame: BusFrame) -> Result<Self, Self::Error> {
+        install_header_if_needed(&mut bus_frame)?;
         let hdr = FrameHeader::try_from(bus_frame.data())?;
-        if hdr.version != VERSION_ID {}
+        if hdr.version != VERSION_ID {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Version ID not match",
+            ));
+        }
         Ok(Self {
             bus_frame,
             application_id: hdr.application,
@@ -63,7 +71,7 @@ impl From<Frame> for BusFrame {
 }
 
 impl Frame {
-    pub(crate) fn new(application_id:u8) -> Self {
+    pub(crate) fn new(application_id: u8) -> Self {
         Self {
             bus_frame: BusFrame::default(),
             application_id,
@@ -89,19 +97,35 @@ impl Frame {
         Ok(())
     }
 
-    pub(crate) fn set_len(&mut self, len: u16) -> io::Result<()>{
+    pub(crate) fn set_len(&mut self, len: u16) -> io::Result<()> {
         self.bus_frame.set_len(len)
     }
 
-    pub(crate) fn meta(&self) -> &FrameMeta{
+    pub(crate) fn meta(&self) -> &FrameMeta {
         &self.bus_frame.meta
     }
 
-    pub(crate) fn meta_mut(&mut self) -> &mut FrameMeta{
+    pub(crate) fn meta_mut(&mut self) -> &mut FrameMeta {
         &mut self.bus_frame.meta
     }
 
-    pub(crate) fn set_meta(&mut self,meta:&FrameMeta){
+    pub(crate) fn set_meta(&mut self, meta: &FrameMeta) {
         self.bus_frame.meta = *meta;
     }
+}
+
+fn insert_header(bus_frame: &mut BusFrame, application_id: u8) -> io::Result<()> {
+    bus_frame.expand_head(size_of::<FrameHeader>())?;
+    let hdr: &mut FrameHeader = bus_frame.data_mut().try_into()?;
+    hdr.version = VERSION_ID;
+    hdr.application = application_id;
+    Ok(())
+}
+
+fn install_header_if_needed(frame: &mut BusFrame) -> Result<(), io::Error> {
+    let meta = &frame.meta;
+    if meta.flag.contains(FrameFlag::UartTelemetry) {
+        insert_header(frame, 0)?;
+    }
+    Ok(())
 }

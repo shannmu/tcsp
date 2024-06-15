@@ -4,11 +4,12 @@ use async_trait::async_trait;
 use bitflags::bitflags;
 use thiserror::Error;
 
-pub(crate) mod can;
-pub(crate) mod uart;
-pub(crate) mod channel;
-
-pub(crate) use can::ty::TyCanProtocol;
+mod can;
+mod uart;
+mod channel;
+pub use channel::Channel;
+pub use uart::TyUartProtocol;
+pub use can::ty::TyCanProtocol;
 
 #[async_trait]
 pub(crate) trait DeviceAdaptor {

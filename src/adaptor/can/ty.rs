@@ -128,7 +128,7 @@ impl TyMultiFrameHeader {
 }
 
 /// Tianyi can protocol
-pub(crate) struct TyCanProtocol {
+pub struct TyCanProtocol {
     src_id: u8,
     slot_map: RecvBuf, // 20KB
     socket_rx: CanSocket,
