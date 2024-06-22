@@ -2,7 +2,8 @@ use std::{io, mem::size_of};
 
 use crate::adaptor::{Frame as BusFrame, FrameFlag, FrameMeta};
 
-const VERSION_ID: u8 = 0x20;
+
+pub(crate)const VERSION_ID: u8 = 0x20;
 
 #[repr(C)]
 pub(crate) struct FrameHeader {
@@ -56,6 +57,7 @@ impl TryFrom<BusFrame> for Frame {
                 "Version ID not match",
             ));
         }
+        bus_frame.shrink_head(size_of::<FrameHeader>())?;
         Ok(Self {
             bus_frame,
             application_id: hdr.application,
@@ -64,9 +66,11 @@ impl TryFrom<BusFrame> for Frame {
     }
 }
 
-impl From<Frame> for BusFrame {
-    fn from(frame: Frame) -> Self {
-        frame.bus_frame
+impl TryFrom<Frame> for BusFrame {
+    type Error = std::io::Error;
+    fn try_from(mut frame: Frame) -> Result<Self, Self::Error> {
+        insert_header(&mut frame.bus_frame,frame.application_id)?;
+        Ok(frame.bus_frame)
     }
 }
 
@@ -78,6 +82,16 @@ impl Frame {
             hdr_inserted: false,
         }
     }
+
+    pub(crate) fn new_from_slice(application_id: u8,data: &[u8]) -> Self {
+        let bus_frame =  BusFrame::new(FrameMeta::default(),data);
+        Self {
+            bus_frame,
+            application_id,
+            hdr_inserted: false,
+        }
+    }
+
     pub(crate) fn application(&self) -> u8 {
         self.application_id
     }
@@ -125,7 +139,14 @@ fn insert_header(bus_frame: &mut BusFrame, application_id: u8) -> io::Result<()>
 fn install_header_if_needed(frame: &mut BusFrame) -> Result<(), io::Error> {
     let meta = &frame.meta;
     if meta.flag.contains(FrameFlag::UartTelemetry) {
+        // The application id=1 refers to the telemetry service.
         insert_header(frame, 0)?;
+    }else if meta.flag.contains(FrameFlag::CanTimeBroadcast) {
+        // The CanTimeBroadcast's first two bytes should be 0x50 0x05
+        // We can ignore them.
+        frame.shrink_head(2)?;
+        // The application id=1 refers to the time sync service.
+        insert_header(frame, 1)?;
     }
     Ok(())
 }

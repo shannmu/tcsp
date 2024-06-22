@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use std::{io, sync::Arc};
 
 use crate::adaptor::{Channel, DeviceAdaptor, TyCanProtocol, TyUartProtocol};
@@ -6,12 +7,15 @@ const MAX_APPLICATION_HANDLER: usize = 256;
 pub(crate) struct TcspServer<D>(Box<TcspInner<D>>);
 
 use crate::application::Application;
+use crate::protocol::v1::frame::FrameHeader;
 use crate::protocol::Frame;
 
 struct TcspInner<D> {
     adaptor: D,
     applications: [Option<Arc<dyn Application>>; MAX_APPLICATION_HANDLER],
 }
+
+unsafe impl<D> Send for TcspInner<D> {}
 
 impl TcspServer<TyCanProtocol> {
     pub(crate) fn new_can(adaptor: TyCanProtocol) -> Self {
@@ -56,13 +60,13 @@ impl<D: DeviceAdaptor> TcspServer<D> {
         if let Ok(bus_frame) = self.0.adaptor.recv().await {
             let frame = Frame::try_from(bus_frame)?;
             log::info!("receive frame from bus:{:?}", frame);
-            let mtu = self.0.adaptor.mtu(frame.meta().flag) as u16;
+            let mtu = (self.0.adaptor.mtu(frame.meta().flag) - size_of::<FrameHeader>()) as u16;
             let application_id = frame.application();
             if let Some(Some(application)) = self.0.applications.get(application_id as usize) {
                 let response = application.handle(frame, mtu)?;
                 log::info!("response:{:?}", response);
                 if let Some(response) = response {
-                    self.0.adaptor.send(response.into()).await.unwrap();
+                    self.0.adaptor.send(response.try_into()?).await.unwrap();
                 }
             }
         }

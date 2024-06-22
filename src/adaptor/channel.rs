@@ -8,6 +8,7 @@ use tokio::sync::{
 
 use super::{DeviceAdaptor, DeviceAdaptorError, Frame, FrameFlag};
 
+/// `Channel` is used for debugging currenly. With `Channel`, you can run the upper service without real hardware.
 pub struct Channel(Arc<ChannelInner>);
 
 struct ChannelInner {

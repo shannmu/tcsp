@@ -11,6 +11,8 @@ use adaptor::{DeviceAdaptor, Frame, TyCanProtocol};
 mod application;
 mod protocol;
 mod server;
+#[cfg(test)]
+mod tests;
 
 #[tokio::main]
 async fn main() {
