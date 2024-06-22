@@ -9,10 +9,10 @@ use socketcan::{
     tokio::AsyncCanSocket, CanDataFrame, CanFilter, CanFrame, CanSocket, EmbeddedFrame, ExtendedId,
     Frame, SocketOptions,
 };
-use std::cell::{RefCell, UnsafeCell};
+use std::cell::UnsafeCell;
 use std::sync::atomic::AtomicU8;
 use std::{
-    io::{self, ErrorKind},
+    io::{self},
     mem::size_of,
 };
 
@@ -150,6 +150,7 @@ impl Default for RecvBuf{
     }
 }
 impl RecvBuf{
+    #[allow(clippy::mut_from_ref)]
     unsafe fn get_mut_unchecked(&self,idx : usize) -> &mut Slot{
         let buf = unsafe{
             &mut *self.buf.get()
@@ -304,7 +305,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
     let len = frame.len();
     match frame_type {
         TyCanProtocolFrameType::Single => {
-            if let Some(hdr) = TySingleFrameHeader::read(&frame.data()) {
+            if let Some(hdr) = TySingleFrameHeader::read(frame.data()) {
                 if hdr.utilites() == TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST
                     && hdr.type_() == TY_CAN_PROTOCOL_TYPE_OBC_REQUEST
                 {
@@ -330,7 +331,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
             }
         }
         TyCanProtocolFrameType::MultiFirst => {
-            if let Some(hdr) = TyMultiFrameHeader::read(&frame.data()) {
+            if let Some(hdr) = TyMultiFrameHeader::read(frame.data()) {
                 if hdr.utilites() == TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST
                     && hdr.type_() == TY_CAN_PROTOCOL_TYPE_OBC_REQUEST
                 {
@@ -340,7 +341,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
                     }
                     let slot = unsafe{slot_map.get_mut_unchecked(idx.into())};
                     // 3 include total_len(2B) and checksum(1B)
-                    slot.set_total_len((hdr.total_len() + 3) as u16).unwrap();
+                    slot.set_total_len(hdr.total_len() + 3).unwrap();
                     let _ = slot.copy_from_slice(frame.data());
                 } else {
                     log::debug!(
@@ -392,7 +393,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
         }
         _ => {}
     };
-    return None;
+    None
 }
 
 #[cfg(test)]
@@ -432,7 +433,15 @@ mod tests {
         id.set_is_csp(false);
         id.set_pid(0x56);
         assert_eq!(id.0, 0x5400656);
-        assert_eq!(TY_CAN_ID_FILTER_MASK & 0x54212, 0x2a << TY_CAN_ID_OFFSET)
+        assert_eq!(TY_CAN_ID_FILTER_MASK & 0x54212, 0x2a << TY_CAN_ID_OFFSET);
+
+        let mut id = TyCanId(0);
+        id.set_src_id(0x00);
+        id.set_dest_id(0x42);
+        id.set_frame_type(TyCanProtocolFrameType::Single as u8);
+        id.set_is_csp(false);
+        id.set_pid(0x0);
+        println!("{:2x}",id.0);
     }
 
     #[test]
@@ -455,7 +464,7 @@ mod tests {
             0x08,
         ];
         let frame: CanDataFrame = CanDataFrame::new(can_id, &data).unwrap();
-        let mut slot_map = RecvBuf::default();
+        let slot_map = RecvBuf::default();
         let frame = super::recv(&slot_map, &frame).unwrap();
         assert_eq!(frame.len(), 6);
         assert_eq!(frame.meta.src_id, 0);
@@ -473,9 +482,8 @@ mod tests {
         id.set_frame_type(TyCanProtocolFrameType::MultiMiddle as u8);
         let rest_can_id = ExtendedId::new(id.0).unwrap();
 
-        let data = vec![
-            0,
-            0x24 as u8,
+        let data = [0,
+            0x24_u8,
             TY_CAN_PROTOCOL_TYPE_OBC_REQUEST,
             TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST,
             1,
@@ -512,19 +520,18 @@ mod tests {
             32,
             33,
             34,
-            127,
-        ];
+            127];
         let frame = CanDataFrame::new(first_can_id, &data[0..8]).unwrap();
         println!("{:?}", &data[0..8]);
-        assert!(super::recv(&mut slot_map, &frame).is_none());
+        assert!(super::recv(&slot_map, &frame).is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[8..16]).unwrap();
-        assert!(super::recv(&mut slot_map, &frame).is_none());
+        assert!(super::recv(&slot_map, &frame).is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[16..24]).unwrap();
-        assert!(super::recv(&mut slot_map, &frame).is_none());
+        assert!(super::recv(&slot_map, &frame).is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[24..32]).unwrap();
-        assert!(super::recv(&mut slot_map, &frame).is_none());
+        assert!(super::recv(&slot_map, &frame).is_none());
         let frame: CanDataFrame = CanDataFrame::new(rest_can_id, &data[32..39]).unwrap();
-        let frame = super::recv(&mut slot_map, &frame).unwrap();
+        let frame = super::recv(&slot_map, &frame).unwrap();
         assert_eq!(frame.meta.len, 39 - 4 - 1);
         assert_eq!(frame.meta.src_id, 0x2a);
         assert_eq!(frame.meta.dest_id, 0);

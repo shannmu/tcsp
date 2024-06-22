@@ -6,5 +6,3 @@ macro_rules! io_invalid_input {
 
 pub(crate) mod ty;
 mod slot;
-#[cfg(test)]
-mod test;

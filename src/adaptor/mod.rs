@@ -50,7 +50,7 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
-    fn new(meta: FrameMeta, data: &[u8]) -> Self {
+    pub(crate) fn new(meta: FrameMeta, data: &[u8]) -> Self {
         let mut frame = Frame {
             meta,
             offset: FRAME_DEFAULT_START_OFFSET,
@@ -58,7 +58,7 @@ impl Frame {
         };
         frame.data
             [FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
-            .copy_from_slice(&data);
+            .copy_from_slice(data);
         frame.meta.len = data.len() as u16;
         frame
     }

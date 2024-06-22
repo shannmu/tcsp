@@ -66,7 +66,7 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         hasher.update(&data[3..data.len()-1]);
         data[data.len() - 1] = hasher.finalize() as u8;
 
-        opt.write(&data);
+        let _ = opt.write(data);
         Ok(())
     }
 
