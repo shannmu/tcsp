@@ -11,6 +11,8 @@ use socketcan::{
 };
 use std::cell::UnsafeCell;
 use std::sync::atomic::AtomicU8;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 use std::{
     io::{self},
     mem::size_of,
@@ -196,11 +198,11 @@ impl DeviceAdaptor for TyCanProtocol {
                     let frame_type = TyCanProtocolFrameType::try_from(ty_can_id.get_frame_type())
                         .unwrap_or(TyCanProtocolFrameType::Unknown);
                     if matches!(frame_type, TyCanProtocolFrameType::Reset) {
-                        if let Err(e) = self.restart() {
+                        if let Err(e) = self.restart().await {
                             log::error!("restart failed:{:?}", e);
                         }
                     } else {
-                        match recv(&self.slot_map, &data_frame) {
+                        match recv(&self.slot_map, &data_frame, self.src_id) {
                             Ok(option_frame) => {
                                 if let Some(bus_frame) = option_frame {
                                     return Ok(bus_frame);
@@ -316,7 +318,8 @@ impl TyCanProtocol {
         })
     }
 
-    fn restart(&self) -> io::Result<()> {
+    async fn restart(&self) -> io::Result<()> {
+        log::info!("CAN socket restart");
         let rx_interface = CanInterface::open(&self.socket_rx_name)?;
         rx_interface
             .bring_down()
@@ -331,6 +334,38 @@ impl TyCanProtocol {
         tx_interface
             .bring_up()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        self.loopback_testing(Duration::from_secs(10)).await;
+        log::info!("CAN socket reset done");
+        Ok(())
+    }
+
+    async fn loopback_testing(&self, timeout: Duration) -> bool {
+        let start = Instant::now();
+        loop {
+            if let Err(_) = self.loopback_testing_inner().await {
+                sleep(Duration::from_secs(1)); // block all threads.
+            } else {
+                return true;
+            }
+            if start.elapsed() > timeout {
+                return false;
+            }
+        }
+    }
+    async fn loopback_testing_inner(&self) -> Result<(), DeviceAdaptorError> {
+        let mut frame = BusFrame::default();
+        frame.meta.len = 8;
+        frame.expand_head(8)?;
+        let mut new_id = TyCanId(0);
+        new_id.set_pid(0);
+        new_id.set_frame_type(TyCanProtocolFrameType::Unknown as u8);
+        new_id.set_src_id(self.src_id);
+        new_id.set_dest_id(frame.meta.src_id);
+        new_id.set_is_csp(false);
+        #[allow(clippy::unwrap_used)]
+        let can_frame =
+            CanFrame::new(ExtendedId::new(new_id.0).unwrap(), &frame.data()[0..8]).unwrap();
+        self.socket_tx.write_frame(can_frame)?.await?;
         Ok(())
     }
 }
@@ -366,19 +401,22 @@ fn get_checksum(buf: &[u8]) -> u8 {
     sum
 }
 
-fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> io::Result<Option<BusFrame>> {
+fn recv(slot_map: &RecvBuf, frame: &CanDataFrame, self_id: u8) -> io::Result<Option<BusFrame>> {
     let ty_can_id = TyCanId(frame.raw_id());
     let is_csp = ty_can_id.get_is_csp();
+    let src_id = ty_can_id.get_src_id();
+    if src_id == self_id {
+        return Ok(None);
+    }
     if is_csp {
-        return Err(io::Error::new(
+        Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "can not handle csp packet",
-        ));
+        ))?;
     }
     let idx = ty_can_id.get_pid();
     let frame_type = TyCanProtocolFrameType::try_from(ty_can_id.get_frame_type())
         .unwrap_or(TyCanProtocolFrameType::Unknown);
-    let src_id = ty_can_id.get_src_id();
     let dest_id = ty_can_id.get_dest_id();
     let len = frame.len();
     log::info!("receive pkt,type={:?}", frame_type);
@@ -549,19 +587,13 @@ mod tests {
         assert_eq!(id.0, 0x5400656);
         assert_eq!(TY_CAN_ID_FILTER_MASK & 0x54212, 0x2a << TY_CAN_ID_OFFSET);
 
-        // let mut id = TyCanId(0);
-        // id.set_src_id(0);
-        // id.set_dest_id(0x43);
-        // id.set_frame_type(TyCanProtocolFrameType::TimeBroadcast as u8);
-        // id.set_is_csp(false);
-        // id.set_pid(0x0);
-        // println!("{:2x}", id.0);
-        // id.set_frame_type(TyCanProtocolFrameType::Single as u8);
-        // println!("{:2x}", id.0);
-        // id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
-        // println!("{:2x}", id.0);
-        // id.set_frame_type(TyCanProtocolFrameType::MultiMiddle as u8);
-        // println!("{:2x}", id.0);
+        let mut id = TyCanId(0);
+        id.set_src_id(0);
+        id.set_dest_id(0x43);
+        id.set_frame_type(TyCanProtocolFrameType::Reset as u8);
+        id.set_is_csp(false);
+        id.set_pid(0x0);
+        println!("{:2x}", id.0);
     }
 
     #[test]
@@ -585,7 +617,7 @@ mod tests {
         ];
         let frame: CanDataFrame = CanDataFrame::new(can_id, &data).unwrap();
         let slot_map = RecvBuf::default();
-        let frame = super::recv(&slot_map, &frame).unwrap().unwrap();
+        let frame = super::recv(&slot_map, &frame, 0x2a).unwrap().unwrap();
         assert_eq!(frame.len(), 6);
         assert_eq!(frame.meta.src_id, 0);
         assert_eq!(frame.meta.dest_id, 0x2a);
@@ -612,15 +644,15 @@ mod tests {
         .chain(std::iter::once(127))
         .collect::<Vec<u8>>();
         let frame = CanDataFrame::new(first_can_id, &data[0..8]).unwrap();
-        assert!(super::recv(&slot_map, &frame).unwrap().is_none());
+        assert!(super::recv(&slot_map, &frame, 0x2a).unwrap().is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[8..16]).unwrap();
-        assert!(super::recv(&slot_map, &frame).unwrap().is_none());
+        assert!(super::recv(&slot_map, &frame, 0x2a).unwrap().is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[16..24]).unwrap();
-        assert!(super::recv(&slot_map, &frame).unwrap().is_none());
+        assert!(super::recv(&slot_map, &frame, 0x2a).unwrap().is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[24..32]).unwrap();
-        assert!(super::recv(&slot_map, &frame).unwrap().is_none());
+        assert!(super::recv(&slot_map, &frame, 0x2a).unwrap().is_none());
         let frame: CanDataFrame = CanDataFrame::new(rest_can_id, &data[32..39]).unwrap();
-        let frame = super::recv(&slot_map, &frame).unwrap().unwrap();
+        let frame = super::recv(&slot_map, &frame, 0x2a).unwrap().unwrap();
         assert_eq!(frame.meta.len, 39 - 4 - 1);
         assert_eq!(frame.meta.src_id, 0x2a);
         assert_eq!(frame.meta.dest_id, 0);

@@ -1,10 +1,13 @@
 mod echo;
 mod telemetry;
 mod time_sync;
+mod reboot;
 
 pub use telemetry::TeleMetry;
 pub use echo::EchoCommand;
 pub use time_sync::TimeSync;
+pub use reboot::Reboot;
+
 
 use crate::protocol::Frame;
 
