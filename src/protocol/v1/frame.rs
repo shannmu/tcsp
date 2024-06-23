@@ -69,7 +69,7 @@ impl TryFrom<BusFrame> for Frame {
 impl TryFrom<Frame> for BusFrame {
     type Error = std::io::Error;
     fn try_from(mut frame: Frame) -> Result<Self, Self::Error> {
-        insert_header(&mut frame.bus_frame,frame.application_id)?;
+        frame.insert_header()?;
         Ok(frame.bus_frame)
     }
 }
@@ -104,7 +104,7 @@ impl Frame {
         self.bus_frame.data_mut()
     }
 
-    pub(super) fn insert_header(&mut self) -> io::Result<()> {
+    fn insert_header(&mut self) -> io::Result<()> {
         if !self.hdr_inserted {
             insert_header(&mut self.bus_frame, self.application_id)?;
         }
@@ -118,11 +118,7 @@ impl Frame {
     pub(crate) fn meta(&self) -> &FrameMeta {
         &self.bus_frame.meta
     }
-
-    pub(crate) fn meta_mut(&mut self) -> &mut FrameMeta {
-        &mut self.bus_frame.meta
-    }
-
+    
     pub(crate) fn set_meta(&mut self, meta: &FrameMeta) {
         self.bus_frame.meta = *meta;
     }

@@ -1,13 +1,12 @@
-use std::{env, sync::Arc};
+use std::sync::Arc;
 
-use adaptor::{Channel, DeviceAdaptorError, FrameMeta};
 use application::{Application, EchoCommand, TeleMetry, TimeSync};
 use server::TcspServer;
 
-use tokio::{self, sync::mpsc::channel};
+use tokio::{self};
 
 pub(crate) mod adaptor;
-use adaptor::{DeviceAdaptor, Frame, TyCanProtocol};
+use adaptor::TyCanProtocol;
 mod application;
 mod protocol;
 mod server;
@@ -32,9 +31,6 @@ async fn main() {
     let echo: Arc<dyn Application> = Arc::new(EchoCommand {});
     let time: Arc<dyn Application> = Arc::new(TimeSync {});
     let applications = [tel, echo, time].into_iter();
-    let mut server = TcspServer::new_can(adaptor,applications);
-    let tel = TeleMetry {};
-    let echo = EchoCommand {};
-    let time = TimeSync {};
-
+    let server = TcspServer::new_can(adaptor,applications);
+    server.listen().await;
 }

@@ -19,7 +19,6 @@ use std::{
 use super::slot::Slot;
 
 const RECV_BUF_SLOT_NUM: usize = 128; // 8bits for id
-const TOTAL_LEN_IN_DATA_OF_MULTI: usize = 0x2;
 const TY_CAN_PROTOCOL_MTU: usize = 150;
 const TY_CAN_PROTOCOL_PAYLOAD_MAX_SIZE: usize =
     TY_CAN_PROTOCOL_MTU - size_of::<TyMultiFrameHeader>() - TY_CAN_PROTOCOL_CHECKSUM_SIZE;

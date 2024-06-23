@@ -3,6 +3,7 @@ use super::{Application, Frame};
 pub struct TeleMetry {}
 
 #[repr(C)]
+#[allow(unused)]
 struct TeleMetryResponse {}
 
 impl Application for TeleMetry {

@@ -10,8 +10,6 @@ use nom::{
 
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use termios;
-use libc;
 use nix::fcntl;
 use nix::unistd;
 use crc32fast::Hasher;
