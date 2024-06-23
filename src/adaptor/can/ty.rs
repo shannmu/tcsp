@@ -1,10 +1,10 @@
 use crate::adaptor::{DeviceAdaptor, DeviceAdaptorError};
 
-use super::super::{Frame as TcspFrame, FrameFlag, FrameMeta};
+use super::super::{Frame as BusFrame, FrameFlag, FrameMeta};
 use async_trait::async_trait;
 use bitfield::bitfield;
 use num_enum::TryFromPrimitive;
-use socketcan::{CanInterface, Socket};
+use socketcan::{frame, CanInterface, Socket};
 use socketcan::{
     tokio::AsyncCanSocket, CanDataFrame, CanFilter, CanFrame, CanSocket, EmbeddedFrame, ExtendedId,
     Frame, SocketOptions,
@@ -147,8 +147,8 @@ pub struct TyCanProtocol {
     slot_map: RecvBuf, // 20KB
     socket_rx: CanSocket,
     socket_tx: AsyncCanSocket<CanSocket>,
-    socket_rx_name : String,
-    socket_tx_name : String,
+    socket_rx_name: String,
+    socket_tx_name: String,
     id_counter: AtomicU8,
 }
 
@@ -171,7 +171,7 @@ impl RecvBuf {
     #[allow(clippy::mut_from_ref)]
     unsafe fn get_mut_unchecked(&self, idx: usize) -> &mut Slot {
         let buf = unsafe { &mut *self.buf.get() };
-        buf.get_mut(idx).unwrap()
+        &mut buf[idx]
     }
 }
 #[derive(TryFromPrimitive, Debug)]
@@ -188,23 +188,40 @@ enum TyCanProtocolFrameType {
 
 #[async_trait]
 impl DeviceAdaptor for TyCanProtocol {
-    async fn recv(&self) -> Result<TcspFrame, DeviceAdaptorError> {
-        if let Ok(CanFrame::Data(frame)) = self.socket_rx.read_frame() {
-            let ty_can_id = TyCanId(frame.raw_id());
-            let frame_type = TyCanProtocolFrameType::try_from(ty_can_id.get_frame_type())
-                .unwrap_or(TyCanProtocolFrameType::Unknown);
-            if matches!(frame_type, TyCanProtocolFrameType::Reset) {
-                if let Err(e) = self.restart(){
-                    log::error!("restart failed:{:?}",e);
+    async fn recv(&self) -> Result<BusFrame, DeviceAdaptorError> {
+        if let Ok(frame) = self.socket_rx.read_frame() {
+            match frame {
+                CanFrame::Data(data_frame) => {
+                    let ty_can_id = TyCanId(data_frame.raw_id());
+                    let frame_type = TyCanProtocolFrameType::try_from(ty_can_id.get_frame_type())
+                        .unwrap_or(TyCanProtocolFrameType::Unknown);
+                    if matches!(frame_type, TyCanProtocolFrameType::Reset) {
+                        if let Err(e) = self.restart() {
+                            log::error!("restart failed:{:?}", e);
+                        }
+                    } else {
+                        match recv(&self.slot_map, &data_frame) {
+                            Ok(option_frame) => {
+                                if let Some(bus_frame) = option_frame {
+                                    return Ok(bus_frame);
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("{}", e);
+                            }
+                        }
+                    }
                 }
-            }else{
-                return recv(&self.slot_map, &frame).ok_or(DeviceAdaptorError::Empty)
+                CanFrame::Error(error_frame) => {
+                    log::info!("{:?}", error_frame);
+                }
+                _ => {}
             }
         }
         Err(DeviceAdaptorError::Empty)
     }
 
-    async fn send(&self, mut frame: TcspFrame) -> Result<(), DeviceAdaptorError> {
+    async fn send(&self, mut frame: BusFrame) -> Result<(), DeviceAdaptorError> {
         let len = frame.meta.len;
         let mut new_id = TyCanId(0);
         new_id.set_src_id(self.src_id);
@@ -218,21 +235,24 @@ impl DeviceAdaptor for TyCanProtocol {
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         new_id.set_pid(id);
         if len <= TY_CAN_PROTOCOL_SINGLE_FRAME_MAX as u16 {
+            attach_single_frame_hdr(&mut frame)?;
+            let new_len = frame.len();
+            #[allow(clippy::unwrap_used)]
             let can_frame = CanFrame::new(
                 ExtendedId::new(new_id.0).unwrap(),
-                &frame.data()[0..len.into()],
+                &frame.data()[0..new_len],
             )
             .unwrap();
-            attach_single_frame_hdr(&mut frame);
             self.socket_tx.write_frame(can_frame)?.await?;
         } else {
             // attach meta
-            attach_multi_frame_hdr_and_checksum(&mut frame);
+            attach_multi_frame_hdr_and_checksum(&mut frame)?;
             let mut remain: i32 = frame.meta.len.into();
             let mut offset: usize = 0;
 
             // first packet
             new_id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
+            #[allow(clippy::unwrap_used)]
             let can_frame = CanFrame::new(
                 ExtendedId::new(new_id.0).unwrap(),
                 &frame.data()[0..TY_CAN_PROTOCOL_CAN_FRAME_SIZE],
@@ -251,13 +271,14 @@ impl DeviceAdaptor for TyCanProtocol {
                 } else {
                     remain
                 };
-                let can_frame = CanFrame::new(
+                #[allow(clippy::unwrap_used)]
+                let next_can_frame = CanFrame::new(
                     ExtendedId::new(new_id.0).unwrap(),
                     &frame.data()[offset..offset + this_len as usize],
                 )
                 .unwrap();
 
-                self.socket_tx.write_frame(can_frame)?.await?;
+                self.socket_tx.write_frame(next_can_frame)?.await?;
                 remain -= this_len;
                 offset += this_len as usize;
             }
@@ -278,46 +299,64 @@ impl TyCanProtocol {
             (id as u32) << TY_CAN_ID_OFFSET,
             TY_CAN_ID_FILTER_MASK,
         )])?;
+        log::debug!(
+            "socket rx = {}, socket tx= {},filter = {}",
+            socket_rx_name,
+            socket_tx_name,
+            (id as u32) << TY_CAN_ID_OFFSET
+        );
         Ok(Self {
             src_id: id,
             slot_map: RecvBuf::default(),
             socket_rx,
             socket_tx,
-            socket_rx_name : socket_rx_name.to_owned(),
-            socket_tx_name : socket_tx_name.to_owned(),
+            socket_rx_name: socket_rx_name.to_owned(),
+            socket_tx_name: socket_tx_name.to_owned(),
             id_counter: AtomicU8::new(0),
         })
     }
 
-    fn restart(&self) -> io::Result<()>{
-        let rx_interface = CanInterface::open(&self.socket_rx_name).unwrap();
-        rx_interface.bring_down().unwrap();
-        let tx_interface = CanInterface::open(&self.socket_tx_name).unwrap();
-        tx_interface.bring_down().unwrap();
-        rx_interface.bring_up().unwrap();
-        tx_interface.bring_up().unwrap();
+    fn restart(&self) -> io::Result<()> {
+        let rx_interface = CanInterface::open(&self.socket_rx_name)?;
+        rx_interface
+            .bring_down()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let tx_interface = CanInterface::open(&self.socket_tx_name)?;
+        tx_interface
+            .bring_down()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        rx_interface
+            .bring_up()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        tx_interface
+            .bring_up()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         Ok(())
     }
 }
 
-fn attach_single_frame_hdr(frame: &mut TcspFrame) {
-    frame.expand_head(size_of::<TySingleFrameHeader>()).unwrap();
+fn attach_single_frame_hdr(frame: &mut BusFrame) -> io::Result<usize> {
+    frame.expand_head(size_of::<TySingleFrameHeader>())?;
+    #[allow(clippy::unwrap_used)]
     let hdr = TySingleFrameHeader::read_mut(frame.data_mut()).unwrap();
     hdr.set_utilites(TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE);
     hdr.set_type(TY_CAN_PROTOCOL_TYPE_RESPONSE);
+    Ok(size_of::<TySingleFrameHeader>())
 }
 
-fn attach_multi_frame_hdr_and_checksum(frame: &mut TcspFrame) {
+fn attach_multi_frame_hdr_and_checksum(frame: &mut BusFrame) -> io::Result<usize> {
     let len = frame.len() as u16;
-    frame.expand_head(size_of::<TyMultiFrameHeader>()).unwrap();
+    frame.expand_head(size_of::<TyMultiFrameHeader>())?;
+    #[allow(clippy::unwrap_used)]
     let hdr = TyMultiFrameHeader::read_mut(frame.data_mut()).unwrap();
     hdr.set_utilites(TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE);
     hdr.set_type(TY_CAN_PROTOCOL_TYPE_RESPONSE);
     // 2 includes type_(1B) and utilites(1B)
     hdr.set_total_len(len + 2);
     let cs = get_checksum(frame.data());
-    frame.expand_tail(1).unwrap();
+    frame.expand_tail(1)?;
     frame.data_mut()[len as usize + size_of::<TyMultiFrameHeader>()] = cs;
+    Ok(size_of::<TyMultiFrameHeader>() + size_of::<TyMultiFrameHeader>())
 }
 fn get_checksum(buf: &[u8]) -> u8 {
     let mut sum: u8 = 0;
@@ -327,11 +366,14 @@ fn get_checksum(buf: &[u8]) -> u8 {
     sum
 }
 
-fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
+fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> io::Result<Option<BusFrame>> {
     let ty_can_id = TyCanId(frame.raw_id());
     let is_csp = ty_can_id.get_is_csp();
     if is_csp {
-        return None;
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "can not handle csp packet",
+        ));
     }
     let idx = ty_can_id.get_pid();
     let frame_type = TyCanProtocolFrameType::try_from(ty_can_id.get_frame_type())
@@ -339,6 +381,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
     let src_id = ty_can_id.get_src_id();
     let dest_id = ty_can_id.get_dest_id();
     let len = frame.len();
+    log::info!("receive pkt,type={:?}", frame_type);
     match frame_type {
         TyCanProtocolFrameType::Single => {
             if let Some(hdr) = TySingleFrameHeader::read(frame.data()) {
@@ -351,16 +394,21 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
                         flag: FrameFlag::empty(),
                         ..Default::default()
                     };
-                    return Some(TcspFrame::new(
+                    // the single frame data will not exceed length
+                    return BusFrame::new(
                         meta,
                         &frame.data()[size_of::<TySingleFrameHeader>()..len],
-                    ));
+                    )
+                    .map(Some);
                 } else {
-                    log::error!(
-                        "receive packet,but utilites={:2x},type={:2x}",
-                        hdr.utilites(),
-                        hdr.type_()
-                    );
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "receive packet,but utilites={:2x},type={:2x}",
+                            hdr.utilites(),
+                            hdr.type_()
+                        ),
+                    ))?;
                 }
             }
         }
@@ -368,25 +416,31 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
             if let Some(hdr) = TyMultiFrameHeader::read(frame.data()) {
                 if hdr.check_valid() {
                     if hdr.total_len() < TY_CAN_PROTOCOL_CAN_FRAME_SIZE as u16 {
-                        log::error!("multi frame total len is too small");
-                        return None;
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "multi frame total len is too small",
+                        ));
                     }
                     let slot = unsafe { slot_map.get_mut_unchecked(idx.into()) };
+                    slot.reset();
                     // 3 include total_len(2B) and checksum(1B)
-                    slot.set_total_len(hdr.total_len() + 3).unwrap();
-                    let _ = slot.copy_from_slice(frame.data());
+                    slot.set_total_len(hdr.total_len() + 3)?;
+                    slot.copy_from_slice(frame.data())?;
                 } else {
-                    log::error!(
-                        "receive packet,but utilites={:2x},type={:2x}",
-                        hdr.utilites(),
-                        hdr.type_()
-                    );
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "receive packet,but utilites={:2x},type={:2x}",
+                            hdr.utilites(),
+                            hdr.type_()
+                        ),
+                    ));
                 }
             }
         }
         TyCanProtocolFrameType::MultiMiddle => {
             let slot = unsafe { slot_map.get_mut_unchecked(idx.into()) };
-            let _ = slot.copy_from_slice(frame.data());
+            slot.copy_from_slice(frame.data())?;
             if slot.is_complete() {
                 // check checksum
                 let total_len = slot.total_len();
@@ -400,13 +454,17 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
                         flag: FrameFlag::empty(),
                         ..Default::default()
                     };
-                    Some(TcspFrame::new(
+                    // we have checked previously in `copy_from_slice` that the buffer is not too large
+                    BusFrame::new(
                         meta,
                         &slot.data()[size_of::<TyMultiFrameHeader>()..total_len as usize - 1],
-                    ))
+                    )
+                    .map(Some)
                 } else {
-                    log::error!("id={:?} checksum failed,expect {:?}", idx, checksum);
-                    None
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("id={:?} checksum failed,expect {:?}", idx, checksum),
+                    ))
                 };
                 slot.reset();
                 return result;
@@ -415,6 +473,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
         TyCanProtocolFrameType::TimeBroadcast => {
             if let Some(buf) = frame.data().get(..8) {
                 // Expect data like 5005XXXXXXXXYY00
+                // the single frame data will not exceed length
                 if buf[0] == 0x50 && buf[1] == 0x05 && buf[7] == 0x00 {
                     let meta = FrameMeta {
                         src_id,
@@ -424,14 +483,17 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
                         flag: FrameFlag::CanTimeBroadcast,
                         ..Default::default()
                     };
-                    return Some(TcspFrame::new(meta, &frame.data()[..8]));
+                    return BusFrame::new(meta, &frame.data()[..8]).map(Some);
                 } else {
-                    log::error!(
-                        "receive time broadcast packet,but data is invalid:{:?}",
-                        buf
-                    );
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "receive time broadcast packet,but data is invalid:{:?}",
+                            buf
+                        ),
+                    ))?
                 }
-            }
+            };
         }
         TyCanProtocolFrameType::Reset => {}
         _ => {
@@ -441,7 +503,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame) -> Option<TcspFrame> {
             );
         }
     };
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -487,15 +549,19 @@ mod tests {
         assert_eq!(id.0, 0x5400656);
         assert_eq!(TY_CAN_ID_FILTER_MASK & 0x54212, 0x2a << TY_CAN_ID_OFFSET);
 
-        let mut id = TyCanId(0);
-        id.set_src_id(0x00);
-        id.set_dest_id(0x42);
-        id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
-        id.set_is_csp(false);
-        id.set_pid(0x0);
-        println!("{:2x}", id.0);
-        id.set_frame_type(TyCanProtocolFrameType::MultiMiddle as u8);
-        println!("{:2x}", id.0);
+        // let mut id = TyCanId(0);
+        // id.set_src_id(0);
+        // id.set_dest_id(0x43);
+        // id.set_frame_type(TyCanProtocolFrameType::TimeBroadcast as u8);
+        // id.set_is_csp(false);
+        // id.set_pid(0x0);
+        // println!("{:2x}", id.0);
+        // id.set_frame_type(TyCanProtocolFrameType::Single as u8);
+        // println!("{:2x}", id.0);
+        // id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
+        // println!("{:2x}", id.0);
+        // id.set_frame_type(TyCanProtocolFrameType::MultiMiddle as u8);
+        // println!("{:2x}", id.0);
     }
 
     #[test]
@@ -519,7 +585,7 @@ mod tests {
         ];
         let frame: CanDataFrame = CanDataFrame::new(can_id, &data).unwrap();
         let slot_map = RecvBuf::default();
-        let frame = super::recv(&slot_map, &frame).unwrap();
+        let frame = super::recv(&slot_map, &frame).unwrap().unwrap();
         assert_eq!(frame.len(), 6);
         assert_eq!(frame.meta.src_id, 0);
         assert_eq!(frame.meta.dest_id, 0x2a);
@@ -546,15 +612,15 @@ mod tests {
         .chain(std::iter::once(127))
         .collect::<Vec<u8>>();
         let frame = CanDataFrame::new(first_can_id, &data[0..8]).unwrap();
-        assert!(super::recv(&slot_map, &frame).is_none());
+        assert!(super::recv(&slot_map, &frame).unwrap().is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[8..16]).unwrap();
-        assert!(super::recv(&slot_map, &frame).is_none());
+        assert!(super::recv(&slot_map, &frame).unwrap().is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[16..24]).unwrap();
-        assert!(super::recv(&slot_map, &frame).is_none());
+        assert!(super::recv(&slot_map, &frame).unwrap().is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[24..32]).unwrap();
-        assert!(super::recv(&slot_map, &frame).is_none());
+        assert!(super::recv(&slot_map, &frame).unwrap().is_none());
         let frame: CanDataFrame = CanDataFrame::new(rest_can_id, &data[32..39]).unwrap();
-        let frame = super::recv(&slot_map, &frame).unwrap();
+        let frame = super::recv(&slot_map, &frame).unwrap().unwrap();
         assert_eq!(frame.meta.len, 39 - 4 - 1);
         assert_eq!(frame.meta.src_id, 0x2a);
         assert_eq!(frame.meta.dest_id, 0);
@@ -574,15 +640,16 @@ mod tests {
                 ..Default::default()
             },
             &data,
-        );
-        attach_single_frame_hdr(&mut tf);
+        )
+        .unwrap();
+        attach_single_frame_hdr(&mut tf).unwrap();
         assert_eq!(tf.data()[0], TY_CAN_PROTOCOL_TYPE_RESPONSE);
         assert_eq!(tf.data()[1], TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE);
         assert_eq!(tf.meta.len, 8);
 
         let data: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-        let mut tf2 = Frame::new(FrameMeta::default(), &data);
-        attach_multi_frame_hdr_and_checksum(&mut tf2);
+        let mut tf2 = Frame::new(FrameMeta::default(), &data).unwrap();
+        attach_multi_frame_hdr_and_checksum(&mut tf2).unwrap();
         assert_eq!(tf2.data()[0], 0);
         assert_eq!(tf2.data()[1] as usize, data.len() + 2);
         assert_eq!(tf2.data()[2], TY_CAN_PROTOCOL_TYPE_RESPONSE);

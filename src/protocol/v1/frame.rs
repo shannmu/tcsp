@@ -83,13 +83,13 @@ impl Frame {
         }
     }
 
-    pub(crate) fn new_from_slice(application_id: u8,data: &[u8]) -> Self {
-        let bus_frame =  BusFrame::new(FrameMeta::default(),data);
-        Self {
+    pub(crate) fn new_from_slice(application_id: u8,data: &[u8]) -> io::Result<Self> {
+        let bus_frame =  BusFrame::new(FrameMeta::default(),data)?;
+        Ok(Self {
             bus_frame,
             application_id,
             hdr_inserted: false,
-        }
+        })
     }
 
     pub(crate) fn application(&self) -> u8 {
@@ -118,6 +118,10 @@ impl Frame {
     pub(crate) fn meta(&self) -> &FrameMeta {
         &self.bus_frame.meta
     }
+
+    pub(crate) fn meta_mut(&mut self) -> &mut FrameMeta {
+        &mut self.bus_frame.meta
+    }
     
     pub(crate) fn set_meta(&mut self, meta: &FrameMeta) {
         self.bus_frame.meta = *meta;
@@ -134,6 +138,7 @@ fn insert_header(bus_frame: &mut BusFrame, application_id: u8) -> io::Result<()>
 
 fn install_header_if_needed(frame: &mut BusFrame) -> Result<(), io::Error> {
     let meta = &frame.meta;
+    #[allow(clippy::else_if_without_else)]
     if meta.flag.contains(FrameFlag::UartTelemetry) {
         // The application id=1 refers to the telemetry service.
         insert_header(frame, 0)?;

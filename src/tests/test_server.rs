@@ -26,7 +26,7 @@ async fn test_server_channel() {
 
     // suppose we receive a telemetry request
     let meta = FrameMeta::default();
-    let frame = Frame::new(meta, &[VERSION_ID, 0x00]);
+    let frame = Frame::new(meta, &[VERSION_ID, 0x00]).unwrap();
     rx_sender.send(frame).await.unwrap();
 
     // we expect to receive a response
@@ -38,7 +38,7 @@ async fn test_server_channel() {
         .into_iter()
         .chain(1..=42)
         .collect::<Vec<u8>>();
-    let frame = Frame::new(FrameMeta::default(), &packet);
+    let frame = Frame::new(FrameMeta::default(), &packet).unwrap();
     rx_sender.send(frame).await.unwrap();
     // we expect to receive a response same as request
     let resp = tx_receiver.recv().await.unwrap();
@@ -50,6 +50,6 @@ async fn test_server_channel() {
         .into_iter()
         .chain(1719073956u32.to_be_bytes().into_iter())
         .collect::<Vec<u8>>();
-    let frame = Frame::new(FrameMeta::default(), &packet);
+    let frame = Frame::new(FrameMeta::default(), &packet).unwrap();
     rx_sender.send(frame).await.unwrap();
 }

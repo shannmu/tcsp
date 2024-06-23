@@ -1,3 +1,4 @@
+#![allow(clippy::shadow_unrelated,clippy::unwrap_used)]
 use std::os::fd::{AsFd, AsRawFd};
 use std::convert::Into;
 
@@ -92,7 +93,7 @@ impl<'a> DeviceAdaptor for Uart<'a> {
         framemeta.data_type = ty_uart.data_type as u8;
         framemeta.command_type = ty_uart.command_type.into();
         framemeta.flag = FrameFlag::default();
-        let frame = Frame::new(framemeta, &ty_uart.data);
+        let frame = Frame::new(framemeta, &ty_uart.data).unwrap();
         
         Ok(frame)
     }

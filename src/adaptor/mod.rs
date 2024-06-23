@@ -65,17 +65,20 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
-    pub(crate) fn new(meta: FrameMeta, data: &[u8]) -> Self {
+    pub(crate) fn new(meta: FrameMeta, data: &[u8]) -> io::Result<Self> {
+        if data.len() > FRAME_MAX_LENGTH {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "buffer too large"));
+        }
         let mut frame = Frame {
             meta,
             offset: FRAME_DEFAULT_START_OFFSET,
             data: Box::new([0u8; FRAME_DATA_LENGTH]),
         };
-        frame.data
-            [FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
+        #[allow(clippy::indexing_slicing)] // checked in `data.len() > FRAME_MAX_LENGTH`
+        frame.data[FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
             .copy_from_slice(data);
         frame.meta.len = data.len() as u16;
-        frame
+        Ok(frame)
     }
 
     pub(crate) fn len(&self) -> usize {

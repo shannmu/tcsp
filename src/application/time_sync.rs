@@ -7,7 +7,8 @@ pub struct TimeSync {}
 
 impl Application for TimeSync {
     fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        let time_slice: [u8; 4] = frame.data().try_into().map_err(|_| {
+        log::info!("{:?}",frame.data());
+        let time_slice: [u8; 4] = frame.data()[..4].try_into().map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Can not convert time slice to [u8;4]",

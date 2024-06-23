@@ -16,19 +16,17 @@ struct TcspInner<D> {
 }
 
 macro_rules! create_server_and_application_table {
-    ($adaptor:ident,$applications:ident) => {
-        {
-            let mut application_table = core::array::from_fn(|_| None);
-            for application in $applications {
-                let id : usize = application.application_id().into();
-                application_table[id] = Some(application);
-            }
-            TcspServer(Arc::new(TcspInner {
-                adaptor : $adaptor,
-                applications: application_table,
-            }))
+    ($adaptor:ident,$applications:ident) => {{
+        let mut application_table = core::array::from_fn(|_| None);
+        for application in $applications {
+            let id: usize = application.application_id().into();
+            application_table[id] = Some(application);
         }
-    };
+        TcspServer(Arc::new(TcspInner {
+            adaptor: $adaptor,
+            applications: application_table,
+        }))
+    }};
 }
 
 impl TcspServer<TyCanProtocol> {
@@ -36,7 +34,7 @@ impl TcspServer<TyCanProtocol> {
         adaptor: TyCanProtocol,
         applications: impl Iterator<Item = Arc<dyn Application>>,
     ) -> Self {
-        create_server_and_application_table!(adaptor,applications)
+        create_server_and_application_table!(adaptor, applications)
     }
 }
 
@@ -45,7 +43,7 @@ impl TcspServer<TyUartProtocol> {
         adaptor: TyUartProtocol,
         applications: impl Iterator<Item = Arc<dyn Application>>,
     ) -> Self {
-        create_server_and_application_table!(adaptor,applications)
+        create_server_and_application_table!(adaptor, applications)
     }
 }
 
@@ -54,12 +52,13 @@ impl TcspServer<Channel> {
         adaptor: Channel,
         applications: impl Iterator<Item = Arc<dyn Application>>,
     ) -> Self {
-        create_server_and_application_table!(adaptor,applications)
+        create_server_and_application_table!(adaptor, applications)
     }
 }
 
 impl<D: DeviceAdaptor + 'static> TcspServer<D> {
     pub(crate) async fn listen(&self) {
+        log::info!("server start");
         loop {
             if let Err(e) = self.handle().await {
                 log::error!("Error occurs:{:?}", e);
@@ -70,25 +69,31 @@ impl<D: DeviceAdaptor + 'static> TcspServer<D> {
     async fn handle(&self) -> Result<(), io::Error> {
         if let Ok(bus_frame) = self.0.adaptor.recv().await {
             let frame = Frame::try_from(bus_frame)?;
-            log::info!("receive frame from bus:{:?}", frame);
-            let server = self.0.clone();
-            tokio::spawn(async move {
+            log::info!("receive application={}" ,frame.application());
+            let server = Arc::<TcspInner<D>>::clone(&self.0);
+            // TODO: we can spawn here. but we need to add flow control for sending, otherwise it may cause bus error
+            // tokio::spawn(async move {
                 let mtu = (server.adaptor.mtu(frame.meta().flag) - size_of::<FrameHeader>()) as u16;
                 let application_id = frame.application();
 
                 if let Some(Some(application)) = server.applications.get(application_id as usize) {
-                    let application = application.clone();
-                    let response = application.handle(frame, mtu).unwrap();
-                    log::info!("response:{:?}", response);
+                    let response_result = application.handle(frame, mtu);
+                    let response = match response_result {
+                        Ok(response) => response,
+                        Err(e) => {
+                            log::error!("faild to handle application:{}", e);
+                            return Ok(());
+                        }
+                    };
+                    log::debug!("response:{:?}", response);
                     if let Some(response) = response {
-                        server
-                            .adaptor
-                            .send(response.try_into().unwrap())
-                            .await
-                            .unwrap();
+                        #[allow(clippy::unwrap_used)] 
+                        if let Err(e) = server.adaptor.send(response.try_into().unwrap()).await {
+                            log::error!("faild to send application response:{}", e);
+                        }
                     }
                 }
-            });
+            // });
         }
         Ok(())
     }
