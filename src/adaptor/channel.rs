@@ -17,6 +17,7 @@ struct ChannelInner {
 }
 
 impl Channel {
+    #[cfg(test)]
     pub fn new(tx: Sender<Frame>, rx: Receiver<Frame>) -> Self {
         Self(Arc::new(ChannelInner {
             tx,

@@ -42,8 +42,8 @@
 )]
 use std::sync::Arc;
 
-use application::{Application, EchoCommand, Reboot, TeleMetry, TimeSync};
-use server::TcspServer;
+use application::{EchoCommand, Reboot, TeleMetry, TimeSync};
+use server::TcspServerBuilder;
 
 use tokio::{self};
 
@@ -60,11 +60,11 @@ async fn main() {
     env_logger::init();
     #[allow(clippy::unwrap_used)]
     let adaptor = TyCanProtocol::new(0x43, "can0", "can0").unwrap();
-    let tel: Arc<dyn Application> = Arc::new(TeleMetry {});
-    let echo: Arc<dyn Application> = Arc::new(EchoCommand {});
-    let time: Arc<dyn Application> = Arc::new(TimeSync {});
-    let reboot: Arc<dyn Application> = Arc::new(Reboot {});
-    let applications = [tel, echo, time,reboot].into_iter();
-    let server = TcspServer::new_can(adaptor,applications);
+    let server = TcspServerBuilder::new_can(adaptor)
+        .with_application(Arc::new(TeleMetry {}))
+        .with_application(Arc::new(EchoCommand {}))
+        .with_application(Arc::new(TimeSync {}))
+        .with_application(Arc::new(Reboot {}))
+        .build();
     server.listen().await;
 }

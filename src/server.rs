@@ -69,32 +69,83 @@ impl<D: DeviceAdaptor + 'static> TcspServer<D> {
     async fn handle(&self) -> Result<(), io::Error> {
         if let Ok(bus_frame) = self.0.adaptor.recv().await {
             let frame = Frame::try_from(bus_frame)?;
-            log::info!("receive application={}" ,frame.application());
+            log::info!("receive application={}", frame.application());
             let server = Arc::<TcspInner<D>>::clone(&self.0);
             // TODO: we can spawn here. but we need to add flow control for sending, otherwise it may cause bus error
             // tokio::spawn(async move {
-                let mtu = (server.adaptor.mtu(frame.meta().flag) - size_of::<FrameHeader>()) as u16;
-                let application_id = frame.application();
+            let mtu = (server.adaptor.mtu(frame.meta().flag) - size_of::<FrameHeader>()) as u16;
+            let application_id = frame.application();
 
-                if let Some(Some(application)) = server.applications.get(application_id as usize) {
-                    let response_result = application.handle(frame, mtu);
-                    let response = match response_result {
-                        Ok(response) => response,
-                        Err(e) => {
-                            log::error!("faild to handle application:{}", e);
-                            return Ok(());
-                        }
-                    };
-                    log::debug!("response:{:?}", response);
-                    if let Some(response) = response {
-                        #[allow(clippy::unwrap_used)] 
-                        if let Err(e) = server.adaptor.send(response.try_into().unwrap()).await {
-                            log::error!("faild to send application response:{}", e);
-                        }
+            if let Some(Some(application)) = server.applications.get(application_id as usize) {
+                let response_result = application.handle(frame, mtu);
+                let response = match response_result {
+                    Ok(response) => response,
+                    Err(e) => {
+                        log::error!("faild to handle application:{}", e);
+                        return Ok(());
+                    }
+                };
+                log::debug!("response:{:?}", response);
+                if let Some(response) = response {
+                    #[allow(clippy::unwrap_used)]
+                    if let Err(e) = server.adaptor.send(response.try_into().unwrap()).await {
+                        log::error!("faild to send application response:{}", e);
                     }
                 }
+            }
             // });
         }
         Ok(())
+    }
+}
+
+pub(crate)struct TcspServerBuilder<A> {
+    adaptor: A,
+    applications: Vec<Arc<dyn Application>>,
+}
+
+impl TcspServerBuilder<TyCanProtocol> {
+    pub(crate) fn new_can(adaptor: TyCanProtocol) -> Self {
+        Self {
+            adaptor,
+            applications: Vec::new(),
+        }
+    }
+
+    pub(crate) fn build(self) -> TcspServer<TyCanProtocol> {
+        TcspServer::new_can(self.adaptor, self.applications.into_iter())
+    }
+}
+
+impl TcspServerBuilder<TyUartProtocol> {
+    pub(crate) fn new_uart(adaptor: TyUartProtocol) -> Self {
+        Self {
+            adaptor,
+            applications: Vec::new(),
+        }
+    }
+
+    pub(crate) fn build(self) -> TcspServer<TyUartProtocol> {
+        TcspServer::new_uart(self.adaptor, self.applications.into_iter())
+    }
+}
+
+impl TcspServerBuilder<Channel> {
+    pub(crate) fn new_channel(adaptor: Channel) -> Self {
+        Self {
+            adaptor,
+            applications: Vec::new(),
+        }
+    }
+
+    pub(crate) fn build(self) -> TcspServer<Channel> {
+        TcspServer::new_channel(self.adaptor, self.applications.into_iter())
+    }
+}
+
+impl<A: DeviceAdaptor> TcspServerBuilder<A> {
+    pub(crate) fn with_application(mut self, application: Arc<dyn Application>) -> Self {
+        self.applications.push(application);
+        self
     }
 }

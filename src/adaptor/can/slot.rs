@@ -33,10 +33,6 @@ impl Slot {
         &self.data[..self.total_len as usize]
     }
 
-    pub(super) fn len(&self) -> usize{
-        self.current_len.into()
-    }
-
     pub(super) fn set_total_len(&mut self, len: u16) -> io::Result<()> {
         if len > SLOT_SIZE as u16 {
             return Err(io_invalid_input!(ErrorKind::InvalidInput, "invalid len"));

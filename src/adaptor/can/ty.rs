@@ -4,11 +4,11 @@ use super::super::{Frame as BusFrame, FrameFlag, FrameMeta};
 use async_trait::async_trait;
 use bitfield::bitfield;
 use num_enum::TryFromPrimitive;
-use socketcan::{frame, CanInterface, Socket};
 use socketcan::{
     tokio::AsyncCanSocket, CanDataFrame, CanFilter, CanFrame, CanSocket, EmbeddedFrame, ExtendedId,
     Frame, SocketOptions,
 };
+use socketcan::{CanInterface, Socket};
 use std::cell::UnsafeCell;
 use std::sync::atomic::AtomicU8;
 use std::thread::sleep;
@@ -320,6 +320,8 @@ impl TyCanProtocol {
 
     async fn restart(&self) -> io::Result<()> {
         log::info!("CAN socket restart");
+        self.id_counter
+            .store(0, std::sync::atomic::Ordering::Release);
         let rx_interface = CanInterface::open(&self.socket_rx_name)?;
         rx_interface
             .bring_down()
@@ -342,7 +344,7 @@ impl TyCanProtocol {
     async fn loopback_testing(&self, timeout: Duration) -> bool {
         let start = Instant::now();
         loop {
-            if let Err(_) = self.loopback_testing_inner().await {
+            if (self.loopback_testing_inner().await).is_err() {
                 sleep(Duration::from_secs(1)); // block all threads.
             } else {
                 return true;
