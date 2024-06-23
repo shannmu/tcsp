@@ -12,7 +12,7 @@ pub use uart::TyUartProtocol;
 pub use can::ty::TyCanProtocol;
 
 #[async_trait]
-pub(crate) trait DeviceAdaptor {
+pub(crate) trait DeviceAdaptor: Send + Sync{
     /// Send a bus frame to the bus
     async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
 

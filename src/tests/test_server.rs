@@ -1,10 +1,10 @@
-use std::{ mem::size_of, sync::Arc};
+use std::{mem::size_of, sync::Arc};
 
 use tokio::{self, sync::mpsc::channel};
 
 use crate::{
     adaptor::{Channel, DeviceAdaptor, Frame, FrameFlag, FrameMeta},
-    application::{EchoCommand, TeleMetry, TimeSync},
+    application::{Application, EchoCommand, TeleMetry, TimeSync},
     protocol::v1::frame::{FrameHeader, VERSION_ID},
     server::TcspServer,
 };
@@ -15,15 +15,11 @@ async fn test_server_channel() {
     let (rx_sender, rx_receiver) = channel(32);
     let adaptor = Channel::new(tx_sender, rx_receiver);
     let mtu = adaptor.mtu(FrameFlag::empty());
-    let mut server = TcspServer::new_channel(adaptor);
-    let tel = TeleMetry {};
-    let echo = EchoCommand {};
-    let time = TimeSync {};
-
-    server.register(Arc::new(tel));
-    server.register(Arc::new(echo));
-    server.register(Arc::new(time));
-
+    let tel: Arc<dyn Application> = Arc::new(TeleMetry {});
+    let echo: Arc<dyn Application> = Arc::new(EchoCommand {});
+    let time: Arc<dyn Application> = Arc::new(TimeSync {});
+    let applications = [tel, echo, time].into_iter();
+    let server = TcspServer::new_channel(adaptor,applications);
     tokio::spawn(async move {
         server.listen().await;
     });
@@ -46,14 +42,14 @@ async fn test_server_channel() {
     rx_sender.send(frame).await.unwrap();
     // we expect to receive a response same as request
     let resp = tx_receiver.recv().await.unwrap();
-    let buf = &resp.data()[size_of::<FrameHeader>()..size_of::<FrameHeader>()+42];
-    assert_eq!(buf,(1..=42).collect::<Vec<u8>>());
+    let buf = &resp.data()[size_of::<FrameHeader>()..size_of::<FrameHeader>() + 42];
+    assert_eq!(buf, (1..=42).collect::<Vec<u8>>());
 
     // suppose we recevie a time broadcast request
-    let packet = [VERSION_ID, 0x01].into_iter()
+    let packet = [VERSION_ID, 0x01]
+        .into_iter()
         .chain(1719073956u32.to_be_bytes().into_iter())
         .collect::<Vec<u8>>();
     let frame = Frame::new(FrameMeta::default(), &packet);
     rx_sender.send(frame).await.unwrap();
-
 }

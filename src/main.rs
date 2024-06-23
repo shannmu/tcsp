@@ -1,7 +1,7 @@
 use std::{env, sync::Arc};
 
 use adaptor::{Channel, DeviceAdaptorError, FrameMeta};
-use application::{EchoCommand, TeleMetry};
+use application::{Application, EchoCommand, TeleMetry, TimeSync};
 use server::TcspServer;
 
 use tokio::{self, sync::mpsc::channel};
@@ -27,25 +27,14 @@ async fn main() {
     // server.register(Arc::new(echo));
     // server.listen().await;
     // Ok(())
-    let socket = TyCanProtocol::new(0x42, "can0", "can0").unwrap();
+    let adaptor = TyCanProtocol::new(0x42, "can0", "can0").unwrap();
+    let tel: Arc<dyn Application> = Arc::new(TeleMetry {});
+    let echo: Arc<dyn Application> = Arc::new(EchoCommand {});
+    let time: Arc<dyn Application> = Arc::new(TimeSync {});
+    let applications = [tel, echo, time].into_iter();
+    let mut server = TcspServer::new_can(adaptor,applications);
+    let tel = TeleMetry {};
+    let echo = EchoCommand {};
+    let time = TimeSync {};
 
-    // test recv one packet
-
-    // test recv multiple pakcet
-
-    // test send one packet
-    let mut meta = FrameMeta::default();
-    meta.len = 6;
-    let mut frame = Frame::new(meta, &[1, 2, 3, 4, 5, 6]);
-    socket.send(frame).await.unwrap();
-
-    // print
-    // test send multiple packet
-    let mut frame = Frame::default();
-    frame.meta.dest_id = 0;
-    frame.meta.len = 12;
-    frame
-        .data_mut()
-        .copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    socket.send(frame).await.unwrap();
 }

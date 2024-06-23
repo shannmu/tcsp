@@ -4,7 +4,7 @@ use std::{io, sync::Arc};
 use crate::adaptor::{Channel, DeviceAdaptor, TyCanProtocol, TyUartProtocol};
 
 const MAX_APPLICATION_HANDLER: usize = 256;
-pub(crate) struct TcspServer<D>(Box<TcspInner<D>>);
+pub(crate) struct TcspServer<D>(Arc<TcspInner<D>>);
 
 use crate::application::Application;
 use crate::protocol::v1::frame::FrameHeader;
@@ -15,39 +15,50 @@ struct TcspInner<D> {
     applications: [Option<Arc<dyn Application>>; MAX_APPLICATION_HANDLER],
 }
 
-unsafe impl<D> Send for TcspInner<D> {}
+macro_rules! create_server_and_application_table {
+    ($adaptor:ident,$applications:ident) => {
+        {
+            let mut application_table = core::array::from_fn(|_| None);
+            for application in $applications {
+                let id : usize = application.application_id().into();
+                application_table[id] = Some(application);
+            }
+            TcspServer(Arc::new(TcspInner {
+                adaptor : $adaptor,
+                applications: application_table,
+            }))
+        }
+    };
+}
 
 impl TcspServer<TyCanProtocol> {
-    pub(crate) fn new_can(adaptor: TyCanProtocol) -> Self {
-        let applications = core::array::from_fn(|_| None);
-        TcspServer(Box::new(TcspInner {
-            adaptor,
-            applications,
-        }))
+    pub(crate) fn new_can(
+        adaptor: TyCanProtocol,
+        applications: impl Iterator<Item = Arc<dyn Application>>,
+    ) -> Self {
+        create_server_and_application_table!(adaptor,applications)
     }
 }
 
 impl TcspServer<TyUartProtocol> {
-    pub(crate) fn new_uart(adaptor: TyUartProtocol) -> Self {
-        let applications = core::array::from_fn(|_| None);
-        TcspServer(Box::new(TcspInner {
-            adaptor,
-            applications,
-        }))
+    pub(crate) fn new_uart(
+        adaptor: TyUartProtocol,
+        applications: impl Iterator<Item = Arc<dyn Application>>,
+    ) -> Self {
+        create_server_and_application_table!(adaptor,applications)
     }
 }
 
 impl TcspServer<Channel> {
-    pub(crate) fn new_channel(adaptor: Channel) -> Self {
-        let applications = core::array::from_fn(|_| None);
-        TcspServer(Box::new(TcspInner {
-            adaptor,
-            applications,
-        }))
+    pub(crate) fn new_channel(
+        adaptor: Channel,
+        applications: impl Iterator<Item = Arc<dyn Application>>,
+    ) -> Self {
+        create_server_and_application_table!(adaptor,applications)
     }
 }
 
-impl<D: DeviceAdaptor> TcspServer<D> {
+impl<D: DeviceAdaptor + 'static> TcspServer<D> {
     pub(crate) async fn listen(&self) {
         loop {
             if let Err(e) = self.handle().await {
@@ -60,21 +71,25 @@ impl<D: DeviceAdaptor> TcspServer<D> {
         if let Ok(bus_frame) = self.0.adaptor.recv().await {
             let frame = Frame::try_from(bus_frame)?;
             log::info!("receive frame from bus:{:?}", frame);
-            let mtu = (self.0.adaptor.mtu(frame.meta().flag) - size_of::<FrameHeader>()) as u16;
-            let application_id = frame.application();
-            if let Some(Some(application)) = self.0.applications.get(application_id as usize) {
-                let response = application.handle(frame, mtu)?;
-                log::info!("response:{:?}", response);
-                if let Some(response) = response {
-                    self.0.adaptor.send(response.try_into()?).await.unwrap();
+            let server = self.0.clone();
+            tokio::spawn(async move {
+                let mtu = (server.adaptor.mtu(frame.meta().flag) - size_of::<FrameHeader>()) as u16;
+                let application_id = frame.application();
+
+                if let Some(Some(application)) = server.applications.get(application_id as usize) {
+                    let application = application.clone();
+                    let response = application.handle(frame, mtu).unwrap();
+                    log::info!("response:{:?}", response);
+                    if let Some(response) = response {
+                        server
+                            .adaptor
+                            .send(response.try_into().unwrap())
+                            .await
+                            .unwrap();
+                    }
                 }
-            }
+            });
         }
         Ok(())
-    }
-
-    pub(crate) fn register(&mut self, application: Arc<(dyn Application + 'static)>) {
-        let id = application.application_id();
-        self.0.applications[id as usize] = Some(application);
     }
 }
