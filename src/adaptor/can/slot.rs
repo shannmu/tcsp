@@ -53,7 +53,7 @@ impl Slot {
     }
 
     pub(super) fn is_complete(&self) -> bool {
-        self.current_len == self.total_len
+        self.is_valid && self.current_len == self.total_len
     }
 }
 

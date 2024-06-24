@@ -627,8 +627,8 @@ mod tests {
 
         // test recv multi frame
         let mut id = TyCanId(0);
-        id.set_src_id(0x2a);
-        id.set_dest_id(0);
+        id.set_src_id(0);
+        id.set_dest_id(0x2a);
         id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
         id.set_is_csp(false);
         id.set_pid(0x20);
@@ -656,8 +656,8 @@ mod tests {
         let frame: CanDataFrame = CanDataFrame::new(rest_can_id, &data[32..39]).unwrap();
         let frame = super::recv(&slot_map, &frame, 0x2a).unwrap().unwrap();
         assert_eq!(frame.meta.len, 39 - 4 - 1);
-        assert_eq!(frame.meta.src_id, 0x2a);
-        assert_eq!(frame.meta.dest_id, 0);
+        assert_eq!(frame.meta.src_id, 0);
+        assert_eq!(frame.meta.dest_id, 0x2a);
         assert_eq!(&frame.data()[..frame.len()], &data[4..38]);
     }
 
