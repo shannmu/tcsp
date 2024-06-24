@@ -10,8 +10,6 @@ use async_trait::async_trait;
 
 use nom::{bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, IResult};
 
-use crc32fast::Hasher;
-use nix::fcntl;
 use serialport::SerialPort;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
