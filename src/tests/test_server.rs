@@ -3,9 +3,9 @@ use std::{mem::size_of, sync::Arc};
 use tokio::{self, sync::mpsc::channel};
 
 use crate::{
-    adaptor::{Channel, DeviceAdaptor, Frame, FrameFlag, FrameMeta},
+    adaptor::{Channel, DeviceAdaptor, Frame as BusFrame, FrameFlag, FrameMeta},
     application::{Application, EchoCommand, TeleMetry, TimeSync},
-    protocol::v1::frame::{FrameHeader, VERSION_ID},
+    protocol::v1::frame::{FrameHeader, VERSION_ID,Frame},
     server::TcspServer,
 };
 
@@ -25,31 +25,26 @@ async fn test_server_channel() {
     });
 
     // suppose we receive a telemetry request
-    let meta = FrameMeta::default();
-    let frame = Frame::new(meta, &[VERSION_ID, 0x00]).unwrap();
-    rx_sender.send(frame).await.unwrap();
+    let telemetry_req = TeleMetry::request().unwrap();
+    rx_sender.send(telemetry_req.try_into().unwrap()).await.unwrap();
 
     // we expect to receive a response
     let resp = tx_receiver.recv().await.unwrap();
     assert_eq!(resp.meta.len as usize, mtu);
 
     // suppose we receive a echo request
-    let packet = [VERSION_ID, 0x02]
-        .into_iter()
-        .chain(1..=42)
+    let content = (1..=42)
         .collect::<Vec<u8>>();
-    let frame = Frame::new(FrameMeta::default(), &packet).unwrap();
-    rx_sender.send(frame).await.unwrap();
+    let echo = EchoCommand {};
+    let echo_req = echo.request(150, &content).unwrap();
+    rx_sender.send(echo_req.try_into().unwrap()).await.unwrap();
     // we expect to receive a response same as request
-    let resp = tx_receiver.recv().await.unwrap();
-    let buf = &resp.data()[size_of::<FrameHeader>()..size_of::<FrameHeader>() + 42];
+    let resp: Frame = tx_receiver.recv().await.unwrap().try_into().unwrap();
+    assert_eq!(resp.application(), EchoCommand::APPLICATION_ID);
+    let buf = &resp.data()[..42];
     assert_eq!(buf, (1..=42).collect::<Vec<u8>>());
 
     // suppose we recevie a time broadcast request
-    let packet = [VERSION_ID, 0x01]
-        .into_iter()
-        .chain(1719073956u32.to_be_bytes().into_iter())
-        .collect::<Vec<u8>>();
-    let frame = Frame::new(FrameMeta::default(), &packet).unwrap();
-    rx_sender.send(frame).await.unwrap();
+    let time_req = TimeSync::request_now().unwrap();
+    rx_sender.send(time_req.try_into().unwrap()).await.unwrap();
 }
