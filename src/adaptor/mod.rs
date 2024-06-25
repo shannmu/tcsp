@@ -12,7 +12,7 @@ pub use uart::TyUartProtocol;
 pub use can::ty::TyCanProtocol;
 
 #[async_trait]
-pub(crate) trait DeviceAdaptor: Send + Sync{
+pub trait DeviceAdaptor: Send + Sync{
     /// Send a bus frame to the bus
     async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
 
@@ -32,7 +32,7 @@ const FRAME_DATA_LENGTH: usize = FRAME_MAX_LENGTH + FRAME_PADDING;
 const FRAME_DEFAULT_START_OFFSET: u16 = 16;
 
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate)struct FrameMeta {
+pub struct FrameMeta {
     pub(crate)src_id: u8,
     pub(crate)dest_id: u8,
     pub(crate)id: u8,
@@ -44,7 +44,7 @@ pub(crate)struct FrameMeta {
 
 bitflags! {
     #[derive(Debug,Clone,Copy,Default, PartialEq, Eq)]
-    pub(crate) struct FrameFlag: u8 {
+    pub struct FrameFlag: u8 {
         const CanTimeBroadcast = 1;
         const UartTelemetry = 1<<2;
     }
@@ -58,7 +58,7 @@ bitflags! {
 /// When you call methods like `expand_` or `shrink`, the field `length` in `meta` will change at the same. We will move length to a private field sooner.
 /// So be careful when you use these methods.
 #[derive(Debug, Clone)]
-pub(crate) struct Frame {
+pub struct Frame {
     pub(crate)meta: FrameMeta,
     offset: u16,
     data: Box<[u8; FRAME_DATA_LENGTH]>,
@@ -151,7 +151,7 @@ impl Default for Frame {
 }
 
 #[derive(Error, Debug)]
-pub(crate) enum DeviceAdaptorError {
+pub enum DeviceAdaptorError {
     #[error("Frame construct error")]
     FrameError(String),
 

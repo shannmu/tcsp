@@ -12,7 +12,7 @@ pub use reboot::Reboot;
 use crate::protocol::Frame;
 
 
-pub(crate) trait Application: Send + Sync{
+pub trait Application: Send + Sync{
     /// TODO: what if the frame is very large? Start a new thread?
     /// Parse the bus frame into an application frame
     fn handle(&self,frame:Frame,mtu:u16) -> std::io::Result<Option<Frame>>;

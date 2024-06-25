@@ -40,31 +40,17 @@
         clippy::print_stderr,
     )
 )]
-use std::sync::Arc;
-
-use application::{EchoCommand, Reboot, TeleMetry, TimeSync};
-use server::TcspServerBuilder;
-
-use tokio::{self};
 
 pub(crate) mod adaptor;
-use adaptor::TyCanProtocol;
 mod application;
 mod protocol;
 mod server;
 #[cfg(test)]
 mod tests;
 
-#[tokio::main]
-async fn main() {
-    env_logger::init();
-    #[allow(clippy::unwrap_used)]
-    let adaptor = TyCanProtocol::new(0x43, "can0", "can0").unwrap();
-    let server = TcspServerBuilder::new_can(adaptor)
-        .with_application(Arc::new(TeleMetry {}))
-        .with_application(Arc::new(EchoCommand {}))
-        .with_application(Arc::new(TimeSync {}))
-        .with_application(Arc::new(Reboot {}))
-        .build();
-    server.listen().await;
-}
+pub use adaptor::TyCanProtocol;
+pub use server::TcspServerBuilder;
+pub use application::{EchoCommand, Reboot, TeleMetry, TimeSync};
+
+
+

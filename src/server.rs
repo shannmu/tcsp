@@ -4,7 +4,7 @@ use std::{io, sync::Arc};
 use crate::adaptor::{Channel, DeviceAdaptor, TyCanProtocol, TyUartProtocol};
 
 const MAX_APPLICATION_HANDLER: usize = 256;
-pub(crate) struct TcspServer<D>(Arc<TcspInner<D>>);
+pub struct TcspServer<D>(Arc<TcspInner<D>>);
 
 use crate::application::Application;
 use crate::protocol::v1::frame::FrameHeader;
@@ -57,7 +57,7 @@ impl TcspServer<Channel> {
 }
 
 impl<D: DeviceAdaptor + 'static> TcspServer<D> {
-    pub(crate) async fn listen(&self) {
+    pub async fn listen(&self) {
         log::info!("server start");
         loop {
             if let Err(e) = self.handle().await {
@@ -99,52 +99,52 @@ impl<D: DeviceAdaptor + 'static> TcspServer<D> {
     }
 }
 
-pub(crate)struct TcspServerBuilder<A> {
+pub struct TcspServerBuilder<A> {
     adaptor: A,
     applications: Vec<Arc<dyn Application>>,
 }
 
 impl TcspServerBuilder<TyCanProtocol> {
-    pub(crate) fn new_can(adaptor: TyCanProtocol) -> Self {
+    pub fn new_can(adaptor: TyCanProtocol) -> Self {
         Self {
             adaptor,
             applications: Vec::new(),
         }
     }
 
-    pub(crate) fn build(self) -> TcspServer<TyCanProtocol> {
+    pub fn build(self) -> TcspServer<TyCanProtocol> {
         TcspServer::new_can(self.adaptor, self.applications.into_iter())
     }
 }
 
 impl TcspServerBuilder<TyUartProtocol> {
-    pub(crate) fn new_uart(adaptor: TyUartProtocol) -> Self {
+    pub fn new_uart(adaptor: TyUartProtocol) -> Self {
         Self {
             adaptor,
             applications: Vec::new(),
         }
     }
 
-    pub(crate) fn build(self) -> TcspServer<TyUartProtocol> {
+    pub fn build(self) -> TcspServer<TyUartProtocol> {
         TcspServer::new_uart(self.adaptor, self.applications.into_iter())
     }
 }
 
 impl TcspServerBuilder<Channel> {
-    pub(crate) fn new_channel(adaptor: Channel) -> Self {
+    pub fn new_channel(adaptor: Channel) -> Self {
         Self {
             adaptor,
             applications: Vec::new(),
         }
     }
 
-    pub(crate) fn build(self) -> TcspServer<Channel> {
+    pub fn build(self) -> TcspServer<Channel> {
         TcspServer::new_channel(self.adaptor, self.applications.into_iter())
     }
 }
 
 impl<A: DeviceAdaptor> TcspServerBuilder<A> {
-    pub(crate) fn with_application(mut self, application: Arc<dyn Application>) -> Self {
+    pub fn with_application(mut self, application: Arc<dyn Application>) -> Self {
         self.applications.push(application);
         self
     }

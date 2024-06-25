@@ -310,7 +310,7 @@ impl DeviceAdaptor for TyCanProtocol {
 }
 
 impl TyCanProtocol {
-    pub(crate) fn new(id: u8, socket_rx_name: &str, socket_tx_name: &str) -> io::Result<Self> {
+    pub fn new(id: u8, socket_rx_name: &str, socket_tx_name: &str) -> io::Result<Self> {
         let socket_rx = CanSocket::open(socket_rx_name)?;
         let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
         socket_rx.set_filters(&[CanFilter::new(
