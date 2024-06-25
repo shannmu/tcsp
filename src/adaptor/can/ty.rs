@@ -37,6 +37,8 @@ const TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE: u8 = 0x04;
 
 const TY_CAN_ID_FILTER_MASK: u32 = 0x1fe000;
 const TY_CAN_ID_OFFSET: usize = 13;
+const TY_CAN_BROADCAST_ID: u8 = 0xfd;
+const TY_CAN_OBC_ID: u8 = 0;
 
 bitfield! {
     struct TyCanId(u32);
@@ -223,21 +225,35 @@ impl DeviceAdaptor for TyCanProtocol {
         Err(DeviceAdaptorError::Empty)
     }
 
+    /// Send a frame to can bus
+    ///
+    /// The can id of Ty standard consists of 5 parts. The caller can specify the destination id ,data length and flag.
+    /// 
+    /// When the Can interface has an ID of OBC(which is 0), the sending response and utilities will automatically be set as `request`.
+    /// Othersewise, the send will send a response as default.
+    /// 
+    /// When sending a Time broadcast, the caller should provide a 4 bytes buffer and set the `CanTimeBroadcast` flag.
     async fn send(&self, mut frame: BusFrame) -> Result<(), DeviceAdaptorError> {
         let len = frame.meta.len;
-        let mut new_id = TyCanId(0);
-        new_id.set_src_id(self.src_id);
-        new_id.set_dest_id(frame.meta.dest_id);
-        new_id.set_is_csp(false);
         if len > TY_CAN_PROTOCOL_PAYLOAD_MAX_SIZE as u16 {
             return Err(DeviceAdaptorError::FrameError("invalid length".to_owned()));
         }
+        if frame.meta.flag.contains(FrameFlag::CanTimeBroadcast) {
+            let can_frame = construct_broadcast_can_frame(&mut frame)?;
+            self.socket_tx.write_frame(can_frame)?.await?;
+            return Ok(());
+        }
+        let mut new_id = TyCanId(0);
+        let is_obc = frame.meta.src_id == TY_CAN_OBC_ID;
+        new_id.set_src_id(self.src_id);
+        new_id.set_dest_id(frame.meta.dest_id);
+        new_id.set_is_csp(false);
         let id = self
             .id_counter
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         new_id.set_pid(id);
         if len <= TY_CAN_PROTOCOL_SINGLE_FRAME_MAX as u16 {
-            attach_single_frame_hdr(&mut frame)?;
+            attach_single_frame_hdr(is_obc, &mut frame)?;
             let new_len = frame.len();
             #[allow(clippy::unwrap_used)]
             let can_frame = CanFrame::new(
@@ -248,7 +264,7 @@ impl DeviceAdaptor for TyCanProtocol {
             self.socket_tx.write_frame(can_frame)?.await?;
         } else {
             // attach meta
-            attach_multi_frame_hdr_and_checksum(&mut frame)?;
+            attach_multi_frame_hdr_and_checksum(is_obc, &mut frame)?;
             let mut remain: i32 = frame.meta.len.into();
             let mut offset: usize = 0;
 
@@ -299,6 +315,10 @@ impl TyCanProtocol {
         let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
         socket_rx.set_filters(&[CanFilter::new(
             (id as u32) << TY_CAN_ID_OFFSET,
+            TY_CAN_ID_FILTER_MASK,
+        )])?;
+        socket_rx.set_filters(&[CanFilter::new(
+            (TY_CAN_BROADCAST_ID as u32) << TY_CAN_ID_OFFSET,
             TY_CAN_ID_FILTER_MASK,
         )])?;
         log::debug!(
@@ -372,22 +392,54 @@ impl TyCanProtocol {
     }
 }
 
-fn attach_single_frame_hdr(frame: &mut BusFrame) -> io::Result<usize> {
+fn construct_broadcast_can_frame(frame: &mut BusFrame) -> io::Result<CanFrame> {
+    if frame.data().len() != 4 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "broadcast frame data length is invalid",
+        ));
+    }
+    frame.expand_head(2)?;
+    frame.data_mut()[..2].copy_from_slice(&[0x50, 0x05]);
+    frame.expand_tail(2)?;
+    frame.data_mut()[6..8].copy_from_slice(&[0, 0]);
+    let mut new_id = TyCanId(0);
+    new_id.set_pid(0);
+    new_id.set_frame_type(TyCanProtocolFrameType::TimeBroadcast as u8);
+    new_id.set_src_id(TY_CAN_OBC_ID);
+    new_id.set_dest_id(TY_CAN_BROADCAST_ID);
+    new_id.set_is_csp(false);
+    #[allow(clippy::unwrap_used)]
+    let can_frame = CanFrame::new(ExtendedId::new(new_id.0).unwrap(), &frame.data()[0..8]).unwrap();
+    Ok(can_frame)
+}
+
+fn attach_single_frame_hdr(is_obc: bool, frame: &mut BusFrame) -> io::Result<usize> {
     frame.expand_head(size_of::<TySingleFrameHeader>())?;
     #[allow(clippy::unwrap_used)]
     let hdr = TySingleFrameHeader::read_mut(frame.data_mut()).unwrap();
-    hdr.set_utilites(TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE);
-    hdr.set_type(TY_CAN_PROTOCOL_TYPE_RESPONSE);
+    if !is_obc {
+        hdr.set_utilites(TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE);
+        hdr.set_type(TY_CAN_PROTOCOL_TYPE_RESPONSE);
+    } else {
+        hdr.set_utilites(TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST);
+        hdr.set_type(TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST);
+    }
     Ok(size_of::<TySingleFrameHeader>())
 }
 
-fn attach_multi_frame_hdr_and_checksum(frame: &mut BusFrame) -> io::Result<usize> {
+fn attach_multi_frame_hdr_and_checksum(is_obc: bool, frame: &mut BusFrame) -> io::Result<usize> {
     let len = frame.len() as u16;
     frame.expand_head(size_of::<TyMultiFrameHeader>())?;
     #[allow(clippy::unwrap_used)]
     let hdr = TyMultiFrameHeader::read_mut(frame.data_mut()).unwrap();
-    hdr.set_utilites(TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE);
-    hdr.set_type(TY_CAN_PROTOCOL_TYPE_RESPONSE);
+    if !is_obc {
+        hdr.set_utilites(TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE);
+        hdr.set_type(TY_CAN_PROTOCOL_TYPE_RESPONSE);
+    } else {
+        hdr.set_utilites(TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST);
+        hdr.set_type(TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST);
+    }
     // 2 includes type_(1B) and utilites(1B)
     hdr.set_total_len(len + 2);
     let cs = get_checksum(frame.data());
@@ -552,10 +604,11 @@ mod tests {
 
     use crate::adaptor::{
         can::ty::{
-            attach_multi_frame_hdr_and_checksum, RecvBuf, TY_CAN_ID_FILTER_MASK, TY_CAN_ID_OFFSET,
-            TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST, TY_CAN_PROTOCOL_TYPE_RESPONSE,
-            TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST, TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE,
-            TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST, TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE,
+            attach_multi_frame_hdr_and_checksum, construct_broadcast_can_frame, RecvBuf,
+            TY_CAN_ID_FILTER_MASK, TY_CAN_ID_OFFSET, TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST,
+            TY_CAN_PROTOCOL_TYPE_RESPONSE, TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST,
+            TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE, TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST,
+            TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE,
         },
         Frame, FrameFlag, FrameMeta,
     };
@@ -666,6 +719,23 @@ mod tests {
         let data = [1, 2, 3, 4, 5, 6];
         let mut tf = Frame::new(
             FrameMeta {
+                src_id: 0x2a,
+                dest_id: 0,
+                id: 0x12,
+                len: 6,
+                flag: FrameFlag::empty(),
+                ..Default::default()
+            },
+            &data,
+        )
+        .unwrap();
+        attach_single_frame_hdr(false, &mut tf).unwrap();
+        assert_eq!(tf.data()[0], TY_CAN_PROTOCOL_TYPE_RESPONSE);
+        assert_eq!(tf.data()[1], TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE);
+        assert_eq!(tf.meta.len, 8);
+
+        let mut tf = Frame::new(
+            FrameMeta {
                 src_id: 0,
                 dest_id: 0x2a,
                 id: 0x12,
@@ -676,18 +746,67 @@ mod tests {
             &data,
         )
         .unwrap();
-        attach_single_frame_hdr(&mut tf).unwrap();
-        assert_eq!(tf.data()[0], TY_CAN_PROTOCOL_TYPE_RESPONSE);
-        assert_eq!(tf.data()[1], TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE);
+        attach_single_frame_hdr(true, &mut tf).unwrap();
+        assert_eq!(tf.data()[0], TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST);
+        assert_eq!(tf.data()[1], TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST);
         assert_eq!(tf.meta.len, 8);
 
         let data: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         let mut tf2 = Frame::new(FrameMeta::default(), &data).unwrap();
-        attach_multi_frame_hdr_and_checksum(&mut tf2).unwrap();
+        attach_multi_frame_hdr_and_checksum(false, &mut tf2).unwrap();
         assert_eq!(tf2.data()[0], 0);
         assert_eq!(tf2.data()[1] as usize, data.len() + 2);
         assert_eq!(tf2.data()[2], TY_CAN_PROTOCOL_TYPE_RESPONSE);
         assert_eq!(tf2.data()[3], TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE);
         assert_eq!(tf2.meta.len as usize, data.len() + 4 + 1);
+
+        let mut tf2 = Frame::new(
+            FrameMeta {
+                src_id: 0,
+                dest_id: 0x2a,
+                id: 0x12,
+                len: 12,
+                flag: FrameFlag::empty(),
+                ..Default::default()
+            },
+            &data,
+        )
+        .unwrap();
+        attach_multi_frame_hdr_and_checksum(true, &mut tf2).unwrap();
+        assert_eq!(tf2.data()[0], 0);
+        assert_eq!(tf2.data()[1] as usize, data.len() + 2);
+        assert_eq!(tf2.data()[2], TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST);
+        assert_eq!(tf2.data()[3], TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST);
+
+        // test send broadcast time frame
+        let data = [1, 2, 3, 4];
+        let mut ttf = Frame::new(
+            FrameMeta {
+                src_id: 0,
+                dest_id: 0,
+                len: 4,
+                flag: FrameFlag::CanTimeBroadcast,
+                ..Default::default()
+            },
+            &data,
+        )
+        .unwrap();
+        let frame = construct_broadcast_can_frame(&mut ttf).unwrap();
+        assert_eq!(frame.data().len(), 8);
+        assert_eq!(frame.data(), &[0x50, 0x05, 1, 2, 3, 4, 0, 0]);
+        let id = frame.id();
+        match id {
+            socketcan::Id::Extended(ex) => {
+                let v = ex.as_raw();
+                let id = TyCanId(v);
+                assert_eq!(
+                    id.get_frame_type(),
+                    TyCanProtocolFrameType::TimeBroadcast as u8
+                );
+            }
+            _ => {
+                panic!()
+            }
+        }
     }
 }
