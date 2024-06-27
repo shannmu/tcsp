@@ -3,20 +3,23 @@ use crate::adaptor::{DeviceAdaptor, DeviceAdaptorError};
 use super::super::{Frame as BusFrame, FrameFlag, FrameMeta};
 use async_trait::async_trait;
 use bitfield::bitfield;
+use futures_util::StreamExt;
 use num_enum::TryFromPrimitive;
 use socketcan::{
     tokio::AsyncCanSocket, CanDataFrame, CanFilter, CanFrame, CanSocket, EmbeddedFrame, ExtendedId,
     Frame, SocketOptions,
 };
-use socketcan::{CanInterface, Socket};
+use socketcan::CanInterface;
 use std::cell::UnsafeCell;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::OnceLock;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use std::{
     io::{self},
     mem::size_of,
 };
+use tokio::sync::Mutex;
 
 use super::slot::Slot;
 
@@ -147,20 +150,21 @@ impl TyMultiFrameHeader {
 
 /// Tianyi can protocol
 pub struct TyCanProtocol {
-    src_id: u8,
+    src_id: AtomicU8,
     slot_map: RecvBuf, // 20KB
-    socket_rx: CanSocket,
-    socket_tx: AsyncCanSocket<CanSocket>,
-    socket_rx_name: String,
-    socket_tx_name: String,
+    socket_rx: Mutex<AsyncCanSocket<CanSocket>>,
+    socket_tx: Mutex<AsyncCanSocket<CanSocket>>,
+    socket_rx_name: OnceLock<String>,
+    socket_tx_name: OnceLock<String>,
     id_counter: AtomicU8,
 }
 
-/// Safety: Receive packets are all in order. Only one can frame is received simultaneously.
+/// Safety: Only one thread is response for receiving packets.
 struct RecvBuf {
     buf: UnsafeCell<[Slot; RECV_BUF_SLOT_NUM]>,
 }
 
+/// Safety: Only one thread is response for receiving packets.
 unsafe impl Send for RecvBuf {}
 unsafe impl Sync for RecvBuf {}
 
@@ -193,7 +197,8 @@ enum TyCanProtocolFrameType {
 #[async_trait]
 impl DeviceAdaptor for TyCanProtocol {
     async fn recv(&self) -> Result<BusFrame, DeviceAdaptorError> {
-        if let Ok(frame) = self.socket_rx.read_frame() {
+        let frame = self.socket_rx.lock().await.next().await;
+        if let Some(Ok(frame)) = frame {
             match frame {
                 CanFrame::Data(data_frame) => {
                     let ty_can_id = TyCanId(data_frame.raw_id());
@@ -204,7 +209,7 @@ impl DeviceAdaptor for TyCanProtocol {
                             log::error!("restart failed:{:?}", e);
                         }
                     } else {
-                        match recv(&self.slot_map, &data_frame, self.src_id) {
+                        match recv(&self.slot_map, &data_frame, self.src_id.load(Ordering::Relaxed)) {
                             Ok(option_frame) => {
                                 if let Some(bus_frame) = option_frame {
                                     return Ok(bus_frame);
@@ -228,10 +233,10 @@ impl DeviceAdaptor for TyCanProtocol {
     /// Send a frame to can bus
     ///
     /// The can id of Ty standard consists of 5 parts. The caller can specify the destination id ,data length and flag.
-    /// 
+    ///
     /// When the Can interface has an ID of OBC(which is 0), the sending response and utilities will automatically be set as `request`.
     /// Othersewise, the send will send a response as default.
-    /// 
+    ///
     /// When sending a Time broadcast, the caller should provide a 4 bytes buffer and set the `CanTimeBroadcast` flag.
     async fn send(&self, mut frame: BusFrame) -> Result<(), DeviceAdaptorError> {
         let len = frame.meta.len;
@@ -240,12 +245,12 @@ impl DeviceAdaptor for TyCanProtocol {
         }
         if frame.meta.flag.contains(FrameFlag::CanTimeBroadcast) {
             let can_frame = construct_broadcast_can_frame(&mut frame)?;
-            self.socket_tx.write_frame(can_frame)?.await?;
+            self.socket_tx.lock().await.write_frame(can_frame)?.await?;
             return Ok(());
         }
         let mut new_id = TyCanId(0);
         let is_obc = frame.meta.src_id == TY_CAN_OBC_ID;
-        new_id.set_src_id(self.src_id);
+        new_id.set_src_id(self.src_id.load(Ordering::Relaxed));
         new_id.set_dest_id(frame.meta.dest_id);
         new_id.set_is_csp(false);
         let id = self
@@ -261,7 +266,7 @@ impl DeviceAdaptor for TyCanProtocol {
                 &frame.data()[0..new_len],
             )
             .unwrap();
-            self.socket_tx.write_frame(can_frame)?.await?;
+            self.socket_tx.lock().await.write_frame(can_frame)?.await?;
         } else {
             // attach meta
             attach_multi_frame_hdr_and_checksum(is_obc, &mut frame)?;
@@ -276,7 +281,7 @@ impl DeviceAdaptor for TyCanProtocol {
                 &frame.data()[0..TY_CAN_PROTOCOL_CAN_FRAME_SIZE],
             )
             .unwrap();
-            self.socket_tx.write_frame(can_frame)?.await?;
+            self.socket_tx.lock().await.write_frame(can_frame)?.await?;
             remain -= TY_CAN_PROTOCOL_CAN_FRAME_SIZE as i32;
             offset += TY_CAN_PROTOCOL_CAN_FRAME_SIZE;
 
@@ -296,7 +301,7 @@ impl DeviceAdaptor for TyCanProtocol {
                 )
                 .unwrap();
 
-                self.socket_tx.write_frame(next_can_frame)?.await?;
+                self.socket_tx.lock().await.write_frame(next_can_frame)?.await?;
                 remain -= this_len;
                 offset += this_len as usize;
             }
@@ -311,7 +316,7 @@ impl DeviceAdaptor for TyCanProtocol {
 
 impl TyCanProtocol {
     pub fn new(id: u8, socket_rx_name: &str, socket_tx_name: &str) -> io::Result<Self> {
-        let socket_rx = CanSocket::open(socket_rx_name)?;
+        let socket_rx = AsyncCanSocket::open(socket_rx_name)?;
         let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
         socket_rx.set_filters(&[CanFilter::new(
             (id as u32) << TY_CAN_ID_OFFSET,
@@ -328,12 +333,12 @@ impl TyCanProtocol {
             (id as u32) << TY_CAN_ID_OFFSET
         );
         Ok(Self {
-            src_id: id,
+            src_id: id.into(),
             slot_map: RecvBuf::default(),
-            socket_rx,
-            socket_tx,
-            socket_rx_name: socket_rx_name.to_owned(),
-            socket_tx_name: socket_tx_name.to_owned(),
+            socket_rx:socket_rx.into(),
+            socket_tx:socket_tx.into(),
+            socket_rx_name: socket_rx_name.to_owned().into(),
+            socket_tx_name: socket_tx_name.to_owned().into(),
             id_counter: AtomicU8::new(0),
         })
     }
@@ -342,11 +347,13 @@ impl TyCanProtocol {
         log::info!("CAN socket restart");
         self.id_counter
             .store(0, std::sync::atomic::Ordering::Release);
-        let rx_interface = CanInterface::open(&self.socket_rx_name)?;
+        #[allow(clippy::unwrap_used)]
+        let rx_interface = CanInterface::open(self.socket_rx_name.get().unwrap())?;
         rx_interface
             .bring_down()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        let tx_interface = CanInterface::open(&self.socket_tx_name)?;
+        #[allow(clippy::unwrap_used)]
+        let tx_interface = CanInterface::open(self.socket_tx_name.get().unwrap())?;
         tx_interface
             .bring_down()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
@@ -381,13 +388,13 @@ impl TyCanProtocol {
         let mut new_id = TyCanId(0);
         new_id.set_pid(0);
         new_id.set_frame_type(TyCanProtocolFrameType::Unknown as u8);
-        new_id.set_src_id(self.src_id);
+        new_id.set_src_id(self.src_id.load(Ordering::Relaxed));
         new_id.set_dest_id(frame.meta.src_id);
         new_id.set_is_csp(false);
         #[allow(clippy::unwrap_used)]
         let can_frame =
             CanFrame::new(ExtendedId::new(new_id.0).unwrap(), &frame.data()[0..8]).unwrap();
-        self.socket_tx.write_frame(can_frame)?.await?;
+        self.socket_tx.lock().await.write_frame(can_frame)?.await?;
         Ok(())
     }
 }
