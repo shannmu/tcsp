@@ -9,6 +9,7 @@ mod uart;
 mod channel;
 pub use channel::Channel;
 pub use uart::TyUartProtocol;
+pub use uart::Uart;
 pub use can::ty::TyCanProtocol;
 
 #[async_trait]

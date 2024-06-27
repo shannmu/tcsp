@@ -20,5 +20,5 @@ serialport = "4.3.0"
 crc = "3.2.1"
 
 [features]
-default=["unstable_add_frameheader"]
+default=[]
 unstable_add_frameheader=[]

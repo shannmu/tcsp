@@ -1,7 +1,7 @@
 use std::mem::size_of;
 use std::{io, sync::Arc};
 
-use crate::adaptor::{Channel, DeviceAdaptor, TyCanProtocol, TyUartProtocol};
+use crate::adaptor::{Channel, DeviceAdaptor, TyCanProtocol, TyUartProtocol, Uart};
 
 const MAX_APPLICATION_HANDLER: usize = 256;
 pub struct TcspServer<D>(Arc<TcspInner<D>>);
@@ -38,9 +38,9 @@ impl TcspServer<TyCanProtocol> {
     }
 }
 
-impl TcspServer<TyUartProtocol> {
+impl TcspServer<Uart> {
     pub(crate) fn new_uart(
-        adaptor: TyUartProtocol,
+        adaptor: Uart,
         applications: impl Iterator<Item = Arc<dyn Application>>,
     ) -> Self {
         create_server_and_application_table!(adaptor, applications)

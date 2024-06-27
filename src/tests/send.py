@@ -1,0 +1,22 @@
+from time import sleep
+import serial
+
+
+
+ser = serial.Serial("/dev/ttyAMA1", 115200, write_timeout=10)
+
+# applicaton 0: telemetry
+ser.write(b"\xeb\x90\x10\x00\x05\x35\x10\x01\x20\x00\x04")
+sleep(5)
+
+# application 1: time_sync
+ser.write(b"\xeb\x90\x10\x00\x09\x35\x10\x01\x20\x01\x66\x76\xfc\xa4\x04")
+sleep(5)
+
+# application 2: echo
+ser.write(b"\xeb\x90\x10\x00\x08\x35\x10\x01\x20\x02\x61\x62\x63\x04")
+sleep(5)
+
+# application 3: reboot
+ser.write(b"\xeb\x90\x10\x00\x05\x35\x10\x01\x20\x03\x04")
+sleep(5)

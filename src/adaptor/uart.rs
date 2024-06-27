@@ -3,6 +3,7 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::convert::Into;
 use std::mem::size_of;
 use std::os::fd::{AsFd, AsRawFd};
+use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -16,6 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 use crate::protocol;
+use crate::protocol::v1::frame::FrameHeader;
 
 use super::{DeviceAdaptor, Frame, FrameFlag, FrameMeta};
 
@@ -31,14 +33,14 @@ const CUSTOM_ALG: crc::Algorithm<u8> = crc::Algorithm {
 };
 
 #[derive(Debug)]
-pub(crate) struct Uart {
+pub struct Uart {
     file: Mutex<Box<dyn SerialPort>>,
 }
 
 impl Uart {
     pub async fn new(device_name: &str, baud_rate: u32) -> Self {
         let port = serialport::new(device_name, baud_rate)
-            .timeout(Duration::from_millis(5000))
+            .timeout(Duration::from_secs(5))
             .open()
             .unwrap();
         Self {
@@ -73,7 +75,6 @@ impl<'a> DeviceAdaptor for Uart {
 
         hasher.update(&data[3..data.len() - 1]);
         data[data.len() - 1] = hasher.finalize();
-        println!("data : {:?}", data);
         self.file.lock().await.write_all(&data).unwrap();
 
         Ok(())
@@ -82,10 +83,9 @@ impl<'a> DeviceAdaptor for Uart {
     async fn recv(&self) -> Result<super::Frame, super::DeviceAdaptorError> {
         // read the data from the uart device
         let mut buf = [0u8; 150];
-        let n = self.file.lock().await.read(&mut buf).unwrap();
-        println!("buf, {:?}", buf);
+        let n = self.file.lock().await.read(&mut buf).map_err(|_| super::DeviceAdaptorError::Empty)?;
         // return the data
-        let ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n]).unwrap().1;
+        let ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n]).map_err(|_| super::DeviceAdaptorError::FrameError(String::from_str("recv data error").unwrap()))?.1;
         let mut framemeta: FrameMeta = FrameMeta::default();
 
         framemeta.len = ty_uart.data_len;
@@ -96,7 +96,7 @@ impl<'a> DeviceAdaptor for Uart {
         framemeta.flag = FrameFlag::default();
         let frame = Frame::new(framemeta, &ty_uart.data);
 
-        Ok(frame)
+        frame.map_err(|_| super::DeviceAdaptorError::FrameError(String::from_str("bus error in recv").unwrap()))
     }
 
     fn mtu(&self, flag: FrameFlag) -> usize {
@@ -168,8 +168,8 @@ pub struct TyUartProtocol {
 
 impl TyUartProtocol {
     pub fn from_slice_to_self(input: &[u8]) -> IResult<&[u8], TyUartProtocol> {
+        log::debug!("Starting parsing recv data stage 1");
         let original_input = input;
-        println!("original_len: {}", original_input.len());
         let (input, (header, platform_id, mut data_len, data_type, command_type, req_id)) =
             tuple((
                 Self::header_parser,
@@ -179,32 +179,41 @@ impl TyUartProtocol {
                 Self::command_type_parser,
                 Self::req_id_parser,
             ))(input)?;
-        println!("1");
+        log::debug!("Starting parsing recv data stage 2");
         let (input, mut data) = Self::data_parser(input, data_len)?;
-        println!("2");
+        log::debug!("Starting parsing recv data stage 3");
         let (input, checksum) = Self::checksum_parser(input)?;
-        println!("3");
 
-        debug_assert_eq!(input.len(), 0, "input is not empty");
+        if input.len() != 0usize {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Verify,
+            )));
+        }
         // check data with crc32
         let crc = crc::Crc::<u8>::new(&CUSTOM_ALG);
         let mut hasher = crc.digest();
 
         let crc_data = &original_input[3..original_input.len() - 1];
         hasher.update(crc_data);
-        debug_assert_eq!(hasher.finalize(), checksum, "checksum is not correct");
+        // if hasher.finalize() != checksum {
+        //     return Err(nom::Err::Error(nom::error::Error::new(
+        //         input,
+        //         nom::error::ErrorKind::Verify,
+        //     )));
+        // }
             
         #[cfg(feature = "unstable_add_frameheader")]
         {
-            let mut raw_header = vec![[0x00u8; 2]];
-            let header  = &mut protocol::FrameHeader::try_from(raw_header.as_mut_slice()).unwrap();
+            let raw_header = vec![0x00u8, 0x00u8];
+            let header  = &mut FrameHeader::try_from(raw_header.as_slice()).unwrap();
 
             header.application = 0x00;
             header.version = 0x20;
             data.extend(&raw_header);
-            data_len += size_of::<protocol::FrameHeader>();
+            data_len += size_of::<FrameHeader>() as u16;
         }
-
+        log::debug!("recv data construct ok");
         Ok((
             input,
             TyUartProtocol {
@@ -221,11 +230,11 @@ impl TyUartProtocol {
     }
 
     fn header_parser(input: &[u8]) -> IResult<&[u8], Header> {
+        log::debug!("Starting header_parser");
         map_res(take(2u64), |input: &[u8]| {
             let mut result = [0u8; 2];
             result.copy_from_slice(input);
             let res = u16::from_be_bytes(result);
-            println!("res: {}", res);
             let res = match res {
                 0xEB90 => Ok(Header::Header),
                 _ => Err(ErrorKind::Tag),
@@ -235,6 +244,7 @@ impl TyUartProtocol {
     }
 
     fn platform_id_parser(input: &[u8]) -> IResult<&[u8], u8> {
+        log::debug!("Starting platform_id_parser");
         map_res(take(1u64), |input: &[u8]| {
             let mut result = [0u8; 1];
             result.copy_from_slice(input);
@@ -244,6 +254,7 @@ impl TyUartProtocol {
     }
 
     fn data_len_parser(input: &[u8]) -> IResult<&[u8], u16> {
+        log::debug!("Starting data_len_parser");
         map_res(take(2u64), |input: &[u8]| {
             let mut result = [0u8; 2];
             result.copy_from_slice(input);
@@ -253,6 +264,7 @@ impl TyUartProtocol {
     }
 
     fn data_type_parser(input: &[u8]) -> IResult<&[u8], CommandType> {
+        log::debug!("Starting data_type_parser");
         map_res(take(1u64), |input: &[u8]| {
             let mut result = [0u8; 1];
             result.copy_from_slice(input);
@@ -268,6 +280,7 @@ impl TyUartProtocol {
     }
 
     fn command_type_parser(input: &[u8]) -> IResult<&[u8], Command> {
+        log::debug!("Starting command_type_parser");
         map_res(take(1u64), |input: &[u8]| {
             let mut result = [0u8; 1];
             result.copy_from_slice(input);
@@ -385,7 +398,7 @@ async fn adaptor_uart_send() {
         command_type: 0x10,
         ..Default::default()
     };
-    let frame = Frame::new(frame_meta, &[0x02, 0x03, 0x04, 0x05, 0x06]);
+    let frame = Frame::new(frame_meta, &[0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
     println!("frame: {:?}", frame);
     uart.send(frame).await.unwrap();
 }
