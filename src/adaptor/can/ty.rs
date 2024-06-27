@@ -5,11 +5,11 @@ use async_trait::async_trait;
 use bitfield::bitfield;
 use futures_util::StreamExt;
 use num_enum::TryFromPrimitive;
+use socketcan::CanInterface;
 use socketcan::{
     tokio::AsyncCanSocket, CanDataFrame, CanFilter, CanFrame, CanSocket, EmbeddedFrame, ExtendedId,
     Frame, SocketOptions,
 };
-use socketcan::CanInterface;
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
@@ -209,7 +209,11 @@ impl DeviceAdaptor for TyCanProtocol {
                             log::error!("restart failed:{:?}", e);
                         }
                     } else {
-                        match recv(&self.slot_map, &data_frame, self.src_id.load(Ordering::Relaxed)) {
+                        match recv(
+                            &self.slot_map,
+                            &data_frame,
+                            self.src_id.load(Ordering::Relaxed),
+                        ) {
                             Ok(option_frame) => {
                                 if let Some(bus_frame) = option_frame {
                                     return Ok(bus_frame);
@@ -301,7 +305,11 @@ impl DeviceAdaptor for TyCanProtocol {
                 )
                 .unwrap();
 
-                self.socket_tx.lock().await.write_frame(next_can_frame)?.await?;
+                self.socket_tx
+                    .lock()
+                    .await
+                    .write_frame(next_can_frame)?
+                    .await?;
                 remain -= this_len;
                 offset += this_len as usize;
             }
@@ -315,7 +323,8 @@ impl DeviceAdaptor for TyCanProtocol {
 }
 
 impl TyCanProtocol {
-    pub fn new(id: u8, socket_rx_name: &str, socket_tx_name: &str) -> io::Result<Self> {
+    pub async fn new(id: u8, socket_rx_name: &str, socket_tx_name: &str) -> io::Result<Self> {
+        Self::setup_can_interface(socket_tx_name, socket_rx_name).await?;
         let socket_rx = AsyncCanSocket::open(socket_rx_name)?;
         let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
         socket_rx.set_filters(&[CanFilter::new(
@@ -335,12 +344,39 @@ impl TyCanProtocol {
         Ok(Self {
             src_id: id.into(),
             slot_map: RecvBuf::default(),
-            socket_rx:socket_rx.into(),
-            socket_tx:socket_tx.into(),
+            socket_rx: socket_rx.into(),
+            socket_tx: socket_tx.into(),
             socket_rx_name: socket_rx_name.to_owned().into(),
             socket_tx_name: socket_tx_name.to_owned().into(),
             id_counter: AtomicU8::new(0),
         })
+    }
+
+    async fn setup_can_interface(socket_tx_name: &str, socket_rx_name: &str) -> io::Result<()> {
+        let tx_interface = CanInterface::open(socket_tx_name)?;
+        let rx_interface = CanInterface::open(socket_rx_name)?;
+        tx_interface
+            .bring_down()
+            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
+        tx_interface
+            .set_bitrate(500_000, 875)
+            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
+        tx_interface
+            .set_ctrlmode(socketcan::CanCtrlMode::OneShot, true)
+            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
+        rx_interface
+            .bring_down()
+            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
+        rx_interface
+            .set_bitrate(500_000, 875)
+            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
+        tx_interface
+            .bring_up()
+            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
+        rx_interface
+            .bring_up()
+            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
+        Ok(())
     }
 
     async fn restart(&self) -> io::Result<()> {
@@ -611,7 +647,11 @@ mod tests {
 
     use crate::adaptor::{
         can::ty::{
-            attach_multi_frame_hdr_and_checksum, construct_broadcast_can_frame, get_checksum, RecvBuf, TY_CAN_ID_FILTER_MASK, TY_CAN_ID_OFFSET, TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST, TY_CAN_PROTOCOL_TYPE_RESPONSE, TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST, TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE, TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST, TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE
+            attach_multi_frame_hdr_and_checksum, construct_broadcast_can_frame, get_checksum,
+            RecvBuf, TY_CAN_ID_FILTER_MASK, TY_CAN_ID_OFFSET,
+            TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST, TY_CAN_PROTOCOL_TYPE_RESPONSE,
+            TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST, TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE,
+            TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST, TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE,
         },
         Frame, FrameFlag, FrameMeta,
     };
