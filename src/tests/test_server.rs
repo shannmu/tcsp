@@ -1,11 +1,11 @@
-use std::{mem::size_of, sync::Arc};
+use std::sync::Arc;
 
 use tokio::{self, sync::mpsc::channel};
 
 use crate::{
-    adaptor::{Channel, DeviceAdaptor, Frame as BusFrame, FrameFlag, FrameMeta},
+    adaptor::{Channel, DeviceAdaptor, FrameFlag},
     application::{Application, EchoCommand, TeleMetry, TimeSync},
-    protocol::v1::frame::{FrameHeader, VERSION_ID,Frame},
+    protocol::v1::frame::Frame,
     server::TcspServer,
 };
 
