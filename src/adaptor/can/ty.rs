@@ -30,8 +30,8 @@ const TY_CAN_PROTOCOL_PAYLOAD_MAX_SIZE: usize =
 const TY_CAN_PROTOCOL_CHECKSUM_SIZE: usize = 1;
 const TY_CAN_PROTOCOL_SINGLE_FRAME_MAX: usize = 8 - size_of::<TySingleFrameHeader>();
 const TY_CAN_PROTOCOL_CAN_FRAME_SIZE: usize = 8;
-const TY_CAN_PROTOCOL_TYPE_RESPONSE: u8 = 0x35;
-const TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST: u8 = 0x05;
+const TY_CAN_PROTOCOL_TYPE_RESPONSE: u8 = 0xbe;
+const TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST: u8 = 0xbe;
 const TY_CAN_PROTOCOL_TYPE_OBC_BROADCAST_REQUEST: u8 = 0x0f;
 const TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST: u8 = 0x01;
 const TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE: u8 = 0x02;
@@ -611,11 +611,7 @@ mod tests {
 
     use crate::adaptor::{
         can::ty::{
-            attach_multi_frame_hdr_and_checksum, construct_broadcast_can_frame, RecvBuf,
-            TY_CAN_ID_FILTER_MASK, TY_CAN_ID_OFFSET, TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST,
-            TY_CAN_PROTOCOL_TYPE_RESPONSE, TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST,
-            TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE, TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST,
-            TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE,
+            attach_multi_frame_hdr_and_checksum, construct_broadcast_can_frame, get_checksum, RecvBuf, TY_CAN_ID_FILTER_MASK, TY_CAN_ID_OFFSET, TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST, TY_CAN_PROTOCOL_TYPE_RESPONSE, TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST, TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE, TY_CAN_PROTOCOL_UTILITES_SINGLE_REQUEST, TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE
         },
         Frame, FrameFlag, FrameMeta,
     };
@@ -695,7 +691,7 @@ mod tests {
         let first_can_id = ExtendedId::new(id.0).unwrap();
         id.set_frame_type(TyCanProtocolFrameType::MultiMiddle as u8);
         let rest_can_id = ExtendedId::new(id.0).unwrap();
-        let data = [
+        let mut data = [
             0,
             0x24_u8,
             TY_CAN_PROTOCOL_TYPE_OBC_COMMAND_REQUEST,
@@ -703,8 +699,9 @@ mod tests {
         ]
         .into_iter()
         .chain(1..=34)
-        .chain(std::iter::once(127))
         .collect::<Vec<u8>>();
+        let checksum = get_checksum(&data);
+        data.push(checksum);
         let frame = CanDataFrame::new(first_can_id, &data[0..8]).unwrap();
         assert!(super::recv(&slot_map, &frame, 0x2a).unwrap().is_none());
         let frame = CanDataFrame::new(rest_can_id, &data[8..16]).unwrap();
