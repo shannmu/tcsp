@@ -48,6 +48,7 @@ mod server;
 #[cfg(test)]
 mod tests;
 
+pub use adaptor::Uart;
 pub use adaptor::TyCanProtocol;
 pub use server::TcspServerBuilder;
 pub use application::{EchoCommand, Reboot, TeleMetry, TimeSync};
