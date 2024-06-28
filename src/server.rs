@@ -117,15 +117,15 @@ impl TcspServerBuilder<TyCanProtocol> {
     }
 }
 
-impl TcspServerBuilder<TyUartProtocol> {
-    pub fn new_uart(adaptor: TyUartProtocol) -> Self {
+impl TcspServerBuilder<Uart> {
+    pub fn new_uart(adaptor: Uart) -> Self {
         Self {
             adaptor,
             applications: Vec::new(),
         }
     }
 
-    pub fn build(self) -> TcspServer<TyUartProtocol> {
+    pub fn build(self) -> TcspServer<Uart> {
         TcspServer::new_uart(self.adaptor, self.applications.into_iter())
     }
 }

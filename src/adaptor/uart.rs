@@ -2,7 +2,6 @@
 use std::os::fd::{AsFd, AsRawFd};
 use std::convert::Into;
 use std::mem::size_of;
-use std::os::fd::{AsFd, AsRawFd};
 use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
