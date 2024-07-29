@@ -74,7 +74,7 @@ impl<'a> DeviceAdaptor for Uart {
 
         hasher.update(&data[3..data.len() - 1]);
         data[data.len() - 1] = hasher.finalize();
-        self.file.lock().await.write_all(&data).unwrap();
+        self.file.lock().await.write_all(&data)?;
 
         Ok(())
     }
@@ -90,9 +90,7 @@ impl<'a> DeviceAdaptor for Uart {
             .map_err(|_| super::DeviceAdaptorError::Empty)?;
         // return the data
         let ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n])
-            .map_err(|_| {
-                super::DeviceAdaptorError::FrameError(String::from_str("recv data error").unwrap())
-            })?
+            .map_err(|_| super::DeviceAdaptorError::FrameError("recv data error".to_string()))?
             .1;
         let mut framemeta: FrameMeta = FrameMeta::default();
 
@@ -104,9 +102,7 @@ impl<'a> DeviceAdaptor for Uart {
         framemeta.flag = FrameFlag::default();
         let frame = Frame::new(framemeta, &ty_uart.data);
 
-        frame.map_err(|_| {
-            super::DeviceAdaptorError::FrameError(String::from_str("bus error in recv").unwrap())
-        })
+        frame.map_err(|_| super::DeviceAdaptorError::FrameError("recv data error".to_string()))
     }
 
     fn mtu(&self, flag: FrameFlag) -> usize {
