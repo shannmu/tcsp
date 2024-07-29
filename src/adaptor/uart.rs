@@ -1,7 +1,7 @@
-#![allow(clippy::shadow_unrelated,clippy::unwrap_used)]
-use std::os::fd::{AsFd, AsRawFd};
+#![allow(clippy::shadow_unrelated, clippy::unwrap_used)]
 use std::convert::Into;
 use std::mem::size_of;
+use std::os::fd::{AsFd, AsRawFd};
 use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
@@ -82,9 +82,18 @@ impl<'a> DeviceAdaptor for Uart {
     async fn recv(&self) -> Result<super::Frame, super::DeviceAdaptorError> {
         // read the data from the uart device
         let mut buf = [0u8; 150];
-        let n = self.file.lock().await.read(&mut buf).map_err(|_| super::DeviceAdaptorError::Empty)?;
+        let n = self
+            .file
+            .lock()
+            .await
+            .read(&mut buf)
+            .map_err(|_| super::DeviceAdaptorError::Empty)?;
         // return the data
-        let ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n]).map_err(|_| super::DeviceAdaptorError::FrameError(String::from_str("recv data error").unwrap()))?.1;
+        let ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n])
+            .map_err(|_| {
+                super::DeviceAdaptorError::FrameError(String::from_str("recv data error").unwrap())
+            })?
+            .1;
         let mut framemeta: FrameMeta = FrameMeta::default();
 
         framemeta.len = ty_uart.data_len;
@@ -95,7 +104,9 @@ impl<'a> DeviceAdaptor for Uart {
         framemeta.flag = FrameFlag::default();
         let frame = Frame::new(framemeta, &ty_uart.data);
 
-        frame.map_err(|_| super::DeviceAdaptorError::FrameError(String::from_str("bus error in recv").unwrap()))
+        frame.map_err(|_| {
+            super::DeviceAdaptorError::FrameError(String::from_str("bus error in recv").unwrap())
+        })
     }
 
     fn mtu(&self, flag: FrameFlag) -> usize {
@@ -106,7 +117,6 @@ impl<'a> DeviceAdaptor for Uart {
         }
     }
 }
-
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum CommandType {
@@ -201,11 +211,11 @@ impl TyUartProtocol {
         //         nom::error::ErrorKind::Verify,
         //     )));
         // }
-            
+
         #[cfg(feature = "unstable_add_frameheader")]
         {
             let raw_header = vec![0x00u8, 0x00u8];
-            let header  = &mut FrameHeader::try_from(raw_header.as_slice()).unwrap();
+            let header = &mut FrameHeader::try_from(raw_header.as_slice()).unwrap();
 
             header.application = 0x00;
             header.version = 0x20;
@@ -343,7 +353,6 @@ impl TyUartProtocol {
     }
 }
 
-
 #[ignore] // TODO: can not pass without hardware
 #[test]
 pub fn tyuart_from_slice_to_self_test() {
@@ -370,9 +379,11 @@ pub fn tyuart_from_slice_to_self_test() {
 }
 
 #[test]
+#[ignore]
 fn tyuart_from_self_to_slice_test() {}
 
 #[tokio::test]
+#[ignore]
 async fn adaptor_uart_recv() {
     println!("into recv");
     let uart = Uart::new("/dev/ttyAMA3", 9600).await;
@@ -390,6 +401,7 @@ async fn adaptor_uart_recv() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn adaptor_uart_send() {
     let uart = Uart::new("/dev/ttyAMA2", 9600).await;
     let frame_meta = FrameMeta {
