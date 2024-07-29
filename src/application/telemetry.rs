@@ -27,7 +27,10 @@ impl Application for TeleMetry {
 
 impl TeleMetry {
     pub(crate) const APPLICATION_ID: u8 = 0;
-    pub(crate) fn request() -> std::io::Result<Frame> {
-        Ok(Frame::new(0))
+    pub fn request(src_id:u8,dst_id:u8) -> std::io::Result<Frame> {
+        let mut frame = Frame::new(0);
+        frame.meta_mut().src_id = src_id;
+        frame.meta_mut().dest_id = dst_id;
+        Ok(frame)
     }
 }

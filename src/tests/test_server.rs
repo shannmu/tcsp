@@ -25,7 +25,7 @@ async fn test_server_channel() {
     });
 
     // suppose we receive a telemetry request
-    let telemetry_req = TeleMetry::request().unwrap();
+    let telemetry_req = TeleMetry::request(0,0).unwrap();
     rx_sender.send(telemetry_req.try_into().unwrap()).await.unwrap();
 
     // we expect to receive a response

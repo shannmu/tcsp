@@ -41,15 +41,14 @@
     )
 )]
 
-pub(crate) mod adaptor;
+pub mod adaptor;
 mod application;
 mod protocol;
 mod server;
 #[cfg(test)]
 mod tests;
 
-pub use adaptor::Uart;
-pub use adaptor::TyCanProtocol;
+pub use adaptor::{DeviceAdaptor,TyCanProtocol,Uart};
 pub use server::TcspServerBuilder;
 pub use application::{EchoCommand, Reboot, TeleMetry, TimeSync};
 
