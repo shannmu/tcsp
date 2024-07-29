@@ -7,14 +7,14 @@ use futures_util::StreamExt;
 use num_enum::TryFromPrimitive;
 use socketcan::CanInterface;
 use socketcan::{
-    tokio::AsyncCanSocket, CanDataFrame, CanFilter, CanFrame, CanSocket, EmbeddedFrame, ExtendedId,
-    Frame, SocketOptions,
+    tokio::AsyncCanSocket, CanDataFrame, CanFrame, CanSocket, EmbeddedFrame, ExtendedId,
+    Frame,
 };
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+#[cfg(feature="netlink_can_error_detection")]
+use std::thread;
 use std::{
     io::{self},
     mem::size_of,
@@ -38,10 +38,18 @@ const TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE: u8 = 0x02;
 const TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST: u8 = 0x03;
 const TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE: u8 = 0x04;
 
+#[cfg(test)]
 const TY_CAN_ID_FILTER_MASK: u32 = 0x1fe000;
 const TY_CAN_ID_OFFSET: usize = 13;
 const TY_CAN_BROADCAST_ID: u8 = 0xfd;
 const TY_CAN_OBC_ID: u8 = 0;
+
+#[cfg(feature="netlink_can_error_detection")]
+const NETLINK_NOTIFICATION: i32 = 26;
+#[cfg(feature="netlink_can_error_detection")]
+const NETLINK_PID: u32 = 4096;
+#[cfg(feature="netlink_can_error_detection")]
+const NETLINK_NOTIFICATION_MAX_LENGTH: usize = 256;
 
 bitfield! {
     struct TyCanId(u32);
@@ -205,7 +213,7 @@ impl DeviceAdaptor for TyCanProtocol {
                     let frame_type = TyCanProtocolFrameType::try_from(ty_can_id.get_frame_type())
                         .unwrap_or(TyCanProtocolFrameType::Unknown);
                     if matches!(frame_type, TyCanProtocolFrameType::Reset) {
-                        if let Err(e) = self.restart().await {
+                        if let Err(e) = self.restart() {
                             log::error!("restart failed:{:?}", e);
                         }
                     } else {
@@ -327,14 +335,14 @@ impl TyCanProtocol {
         Self::setup_can_interface(socket_tx_name, socket_rx_name).await?;
         let socket_rx = AsyncCanSocket::open(socket_rx_name)?;
         let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
-        socket_rx.set_filters(&[CanFilter::new(
-            (id as u32) << TY_CAN_ID_OFFSET,
-            TY_CAN_ID_FILTER_MASK,
-        )])?;
-        socket_rx.set_filters(&[CanFilter::new(
-            (TY_CAN_BROADCAST_ID as u32) << TY_CAN_ID_OFFSET,
-            TY_CAN_ID_FILTER_MASK,
-        )])?;
+        // socket_rx.set_filters(&[CanFilter::new(
+        //     (id as u32) << TY_CAN_ID_OFFSET,
+        //     TY_CAN_ID_FILTER_MASK,
+        // )])?;
+        // socket_rx.set_filters(&[CanFilter::new(
+        //     (TY_CAN_BROADCAST_ID as u32) << TY_CAN_ID_OFFSET,
+        //     TY_CAN_ID_FILTER_MASK,
+        // )])?;
         log::debug!(
             "socket rx = {}, socket tx= {},filter = {}",
             socket_rx_name,
@@ -376,62 +384,84 @@ impl TyCanProtocol {
         rx_interface
             .bring_up()
             .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
+        #[cfg(feature="netlink_can_error_detection")]
+        Self::listen_to_netlink(socket_tx_name.to_owned(), socket_rx_name.to_owned());
         Ok(())
     }
 
-    async fn restart(&self) -> io::Result<()> {
+    fn restart(&self) -> io::Result<()> {
         log::info!("CAN socket restart");
         self.id_counter
             .store(0, std::sync::atomic::Ordering::Release);
         #[allow(clippy::unwrap_used)]
-        let rx_interface = CanInterface::open(self.socket_rx_name.get().unwrap())?;
-        rx_interface
-            .bring_down()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let socket_rx_name = self.socket_rx_name.get().unwrap();
         #[allow(clippy::unwrap_used)]
-        let tx_interface = CanInterface::open(self.socket_tx_name.get().unwrap())?;
-        tx_interface
-            .bring_down()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        rx_interface
-            .bring_up()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        tx_interface
-            .bring_up()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        self.loopback_testing(Duration::from_secs(10)).await;
+        let socket_tx_name = self.socket_tx_name.get().unwrap();
+        Self::reset_interfaces(socket_rx_name, socket_tx_name)?;
         log::info!("CAN socket reset done");
         Ok(())
     }
 
-    async fn loopback_testing(&self, timeout: Duration) -> bool {
-        let start = Instant::now();
-        loop {
-            if (self.loopback_testing_inner().await).is_err() {
-                sleep(Duration::from_secs(1)); // block all threads.
-            } else {
-                return true;
-            }
-            if start.elapsed() > timeout {
-                return false;
-            }
-        }
-    }
-    async fn loopback_testing_inner(&self) -> Result<(), DeviceAdaptorError> {
-        let mut frame = BusFrame::default();
-        frame.meta.len = 8;
-        frame.expand_head(8)?;
-        let mut new_id = TyCanId(0);
-        new_id.set_pid(0);
-        new_id.set_frame_type(TyCanProtocolFrameType::Unknown as u8);
-        new_id.set_src_id(self.src_id.load(Ordering::Relaxed));
-        new_id.set_dest_id(frame.meta.src_id);
-        new_id.set_is_csp(false);
-        #[allow(clippy::unwrap_used)]
-        let can_frame =
-            CanFrame::new(ExtendedId::new(new_id.0).unwrap(), &frame.data()[0..8]).unwrap();
-        self.socket_tx.lock().await.write_frame(can_frame)?.await?;
+    fn reset_interfaces(socket_rx_name: &str, socket_tx_name: &str) -> io::Result<()> {
+        let rx_interface = CanInterface::open(socket_rx_name)?;
+        let tx_interface = CanInterface::open(socket_tx_name)?;
+        rx_interface
+            .bring_down()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        tx_interface
+            .bring_down()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        rx_interface
+            .bring_up()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        tx_interface
+            .bring_up()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         Ok(())
+    }
+
+    #[cfg(feature="netlink_can_error_detection")]
+    fn listen_to_netlink(socket_rx_name: String, socket_tx_name: String) {
+        thread::spawn(move || unsafe {
+            let skfd = libc::socket(libc::AF_NETLINK, libc::SOCK_RAW, NETLINK_NOTIFICATION);
+            let mut buf = [0u8; NETLINK_NOTIFICATION_MAX_LENGTH];
+            if skfd == -1 {
+                panic!("{}", io::Error::last_os_error());
+            }
+            let mut sockaddr: libc::sockaddr_nl = std::mem::zeroed();
+            sockaddr.nl_family = libc::AF_NETLINK as u16;
+            sockaddr.nl_pid = NETLINK_PID;
+            sockaddr.nl_groups = 0;
+
+            if libc::bind(
+                skfd,
+                &sockaddr as *const libc::sockaddr_nl as *const libc::sockaddr,
+                size_of::<libc::sockaddr_nl>() as u32,
+            ) != 0
+            {
+                panic!("{}", io::Error::last_os_error());
+            }
+
+            loop {
+                let ret = libc::recvfrom(
+                    skfd,
+                    buf.as_mut_ptr() as *mut libc::c_void,
+                    NETLINK_NOTIFICATION_MAX_LENGTH,
+                    0,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                );
+                log::info!("restart can interface");
+                if ret < 0 {
+                    log::error!("{}", io::Error::last_os_error());
+                }
+                if let Err(e) =
+                    Self::reset_interfaces(socket_rx_name.as_ref(), socket_tx_name.as_ref())
+                {
+                    log::error!("{}", e);
+                }
+            }
+        });
     }
 }
 

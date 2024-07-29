@@ -895,6 +895,7 @@ dependencies = [
  "crc",
  "env_logger",
  "futures-util",
+ "libc",
  "log",
  "nom",
  "num_enum",

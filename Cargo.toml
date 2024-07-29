@@ -18,8 +18,11 @@ env_logger = "0.11.3"
 chrono = "0.4.38"
 serialport = {version = "4.3.0", default-features = false}
 crc = "3.2.1"
+libc = "0.2.155"
 
 [features]
 default=[]
 unstable_add_frameheader=[]
 libudev=["serialport/default"]
+netlink_can_error_detection=[]
+d2000=["netlink_can_error_detection"]
