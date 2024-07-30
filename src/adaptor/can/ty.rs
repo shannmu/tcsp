@@ -7,13 +7,12 @@ use futures_util::StreamExt;
 use num_enum::TryFromPrimitive;
 use socketcan::CanInterface;
 use socketcan::{
-    tokio::AsyncCanSocket, CanDataFrame, CanFrame, CanSocket, EmbeddedFrame, ExtendedId,
-    Frame,
+    tokio::AsyncCanSocket, CanDataFrame, CanFrame, CanSocket, EmbeddedFrame, ExtendedId, Frame,
 };
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
-#[cfg(feature="netlink_can_error_detection")]
+#[cfg(feature = "netlink_can_error_detection")]
 use std::thread;
 use std::{
     io::{self},
@@ -44,11 +43,11 @@ const TY_CAN_ID_OFFSET: usize = 13;
 const TY_CAN_BROADCAST_ID: u8 = 0xfd;
 const TY_CAN_OBC_ID: u8 = 0;
 
-#[cfg(feature="netlink_can_error_detection")]
+#[cfg(feature = "netlink_can_error_detection")]
 const NETLINK_NOTIFICATION: i32 = 26;
-#[cfg(feature="netlink_can_error_detection")]
+#[cfg(feature = "netlink_can_error_detection")]
 const NETLINK_PID: u32 = 4096;
-#[cfg(feature="netlink_can_error_detection")]
+#[cfg(feature = "netlink_can_error_detection")]
 const NETLINK_NOTIFICATION_MAX_LENGTH: usize = 256;
 
 bitfield! {
@@ -360,31 +359,17 @@ impl TyCanProtocol {
         })
     }
 
+    #[allow(clippy::unwrap_used)]
     async fn setup_can_interface(socket_tx_name: &str, socket_rx_name: &str) -> io::Result<()> {
         let tx_interface = CanInterface::open(socket_tx_name)?;
         let rx_interface = CanInterface::open(socket_rx_name)?;
-        tx_interface
-            .bring_down()
-            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
-        tx_interface
-            .set_bitrate(500_000, 875)
-            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
-        tx_interface
-            .set_ctrlmode(socketcan::CanCtrlMode::OneShot, true)
-            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
-        rx_interface
-            .bring_down()
-            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
-        rx_interface
-            .set_bitrate(500_000, 875)
-            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
-        tx_interface
-            .bring_up()
-            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
-        rx_interface
-            .bring_up()
-            .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("{}", e)))?;
-        #[cfg(feature="netlink_can_error_detection")]
+        tx_interface.bring_down().unwrap();
+        tx_interface.set_bitrate(500_000, 875).unwrap();
+        rx_interface.bring_down().unwrap();
+        rx_interface.set_bitrate(500_000, 875).unwrap();
+        tx_interface.bring_up().unwrap();
+        rx_interface.bring_up().unwrap();
+        #[cfg(feature = "netlink_can_error_detection")]
         Self::listen_to_netlink(socket_tx_name.to_owned(), socket_rx_name.to_owned());
         Ok(())
     }
@@ -420,7 +405,7 @@ impl TyCanProtocol {
         Ok(())
     }
 
-    #[cfg(feature="netlink_can_error_detection")]
+    #[cfg(feature = "netlink_can_error_detection")]
     fn listen_to_netlink(socket_rx_name: String, socket_tx_name: String) {
         thread::spawn(move || unsafe {
             let skfd = libc::socket(libc::AF_NETLINK, libc::SOCK_RAW, NETLINK_NOTIFICATION);
