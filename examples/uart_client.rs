@@ -1,9 +1,12 @@
 use serialport;
 use tokio::sync::Mutex;
 
+mod common;
+use common::init_logger;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    init_logger("uart_client.log", log::Level::Debug).unwrap();
 
     // Init a serial port
     let port = Mutex::new(

@@ -42,9 +42,13 @@ async fn send_once(dest_id:u8, adaptor:&mut TyCanProtocol){
     }
 }
 
+mod common;
+use common::init_logger;
+
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    init_logger("can_client.log", log::Level::Debug).unwrap();
+
     let args = Args::parse();
     let mut adaptor = TyCanProtocol::new(0, "can0", "can0").await.unwrap();
     if !args.deamon{

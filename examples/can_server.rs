@@ -19,9 +19,12 @@ struct Args {
 }
 
 
+mod common;
+use common::init_logger;
+
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    init_logger("can_server.log", log::Level::Debug).unwrap();
     let args = Args::parse();
     let canid = args.can_id;
     log::debug!("can id = 0x{:x}",canid);

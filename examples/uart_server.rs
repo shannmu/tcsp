@@ -2,9 +2,13 @@ use std::sync::Arc;
 
 use tcsp::{EchoCommand, Reboot, TcspServerBuilder, TeleMetry, TimeSync, Uart};
 
+mod common;
+use common::init_logger;
+
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    init_logger("uart_server.log", log::Level::Debug).unwrap();
+
     #[allow(clippy::unwrap_used)]
     let adaptor = Uart::new("/dev/ttyAMA1", 115200).await;
     let server = TcspServerBuilder::new_uart(adaptor)
