@@ -32,6 +32,7 @@ impl log::Log for FileLogger {
         if self.enabled(record.metadata()) {
             let mut file = self.file.lock().unwrap();
             writeln!(file, "{} - {}", record.level(), record.args()).unwrap();
+            println!("{} - {}", record.level(), record.args());
         }
     }
 
