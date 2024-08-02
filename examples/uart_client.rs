@@ -1,5 +1,7 @@
 use serialport;
+use std::time::Duration;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 
 mod common;
 use common::init_logger;
@@ -21,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port.lock().await.write_all(&[
             0xeb, 0x90, 0x01, 0x00, 0x06, 0x35, 0x10, 0x01, 0x01, 0x02, 0x03, 0x00,
         ])?;
-
+        sleep(Duration::from_secs(1)).await;
         // recv data from the server
         let mut buf = [0u8; 150];
         let n = port.lock().await.read(&mut buf)?;
