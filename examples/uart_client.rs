@@ -33,14 +33,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match n {
                 Ok(n) => {
                     if buf[0] == 0xeb && buf[1] == 0x90 {
-                        log::info!("recv frame: {:?}", &buf[..n]);
+                        log::info!(
+                            "recv frame: {:?} - time: {:?}",
+                            &buf[..n],
+                            chrono::Local::now()
+                        );
                         takes_frame = true;
                     } else {
-                        log::warn!("recv invalid frame: {:?}", &buf[..n]);
+                        log::warn!(
+                            "recv invalid frame: {:?} - time: {:?}",
+                            &buf[..n],
+                            chrono::Local::now()
+                        );
                     }
                 }
                 Err(e) => {
-                    log::error!("read data error: {:?}", e);
+                    log::error!(
+                        "read data error: {:?} - time: {:?}",
+                        e,
+                        chrono::Local::now()
+                    );
                 }
             }
 
