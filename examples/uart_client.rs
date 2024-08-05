@@ -26,7 +26,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sleep(Duration::from_secs(1)).await;
         // recv data from the server
         let mut buf = [0u8; 150];
-        let n = port.lock().await.read(&mut buf)?;
-        log::info!("recv data: {:?}", &buf[..n]);
+        let n = port.lock().await.read(&mut buf);
+        match n {
+            Ok(n) => {
+                log::info!("recv data: {:?}", &buf[..n]);
+            }
+            Err(e) => {
+                log::error!("read data error: {:?}", e);
+            }
+        }
     }
 }
