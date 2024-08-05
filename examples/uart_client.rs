@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use serialport::SerialPort;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
@@ -26,14 +27,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sleep(Duration::from_secs(1)).await;
         // recv data from the server
         let mut buf = [0u8; 150];
-        let n = port.lock().await.read(&mut buf);
-        match n {
-            Ok(n) => {
-                log::info!("recv data: {:?}", &buf[..n]);
+        loop {
+            let n = port.lock().await.read(&mut buf);
+            match n {
+                Ok(n) => {
+                    if buf[0] == 0xeb && buf[1] == 0x90 {
+                        log::info!("recv frame: {:?}", &buf[..n]);
+                        break;
+                    } else {
+                        log::warn!("recv invalid frame: {:?}", &buf[..n]);
+                    }
+                }
+                Err(e) => {
+                    log::error!("read data error: {:?}", e);
+                }
             }
-            Err(e) => {
-                log::error!("read data error: {:?}", e);
-            }
+
+            sleep(Duration::from_secs(5)).await;
         }
     }
 }
