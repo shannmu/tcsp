@@ -24,7 +24,7 @@ use common::init_logger;
 
 #[tokio::main]
 async fn main() {
-    init_logger("can_server.log", log::Level::Debug).unwrap();
+    init_logger(log::Level::Debug).unwrap();
     let args = Args::parse();
     let canid = args.can_id;
     log::debug!("can id = 0x{:x}",canid);

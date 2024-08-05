@@ -9,7 +9,7 @@ use common::init_logger;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_logger("uart_client.log", log::Level::Debug).unwrap();
+    init_logger(log::Level::Debug).unwrap();
 
     // Init a serial port
     let port = Mutex::new(

@@ -7,7 +7,7 @@ use common::init_logger;
 
 #[tokio::main]
 async fn main() {
-    init_logger("uart_server.log", log::Level::Debug).unwrap();
+    init_logger(log::Level::Debug).unwrap();
 
     #[allow(clippy::unwrap_used)]
     let adaptor = Uart::new("/dev/ttyAMA1", 115200).await;

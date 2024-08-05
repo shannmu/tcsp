@@ -47,7 +47,7 @@ use common::init_logger;
 
 #[tokio::main]
 async fn main() {
-    init_logger("can_client.log", log::Level::Debug).unwrap();
+    init_logger(log::Level::Debug).unwrap();
 
     let args = Args::parse();
     tokio::spawn(async move {
