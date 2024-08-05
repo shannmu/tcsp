@@ -6,8 +6,7 @@ pub struct EchoCommand;
 
 impl Application for EchoCommand {
     fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        #[allow(clippy::unwrap_used)]
-        let response = Frame::new_from_slice(Self::APPLICATION_ID, frame.data()).unwrap();
+        let response = Frame::new_from_slice(Self::APPLICATION_ID, frame.data())?;
         Ok(Some(response))
     }
 

@@ -51,6 +51,7 @@ const NETLINK_PID: u32 = 4096;
 const NETLINK_NOTIFICATION_MAX_LENGTH: usize = 256;
 
 bitfield! {
+    #[derive(Clone, Copy)]
     struct TyCanId(u32);
     u8;
     pub get_pid, set_pid: 7, 0;
@@ -58,6 +59,13 @@ bitfield! {
     pub get_frame_type, set_frame_type: 12,9;
     pub get_dest_id, set_dest_id: 20,13;
     pub get_src_id, set_src_id: 28,21;
+}
+
+impl From<TyCanId> for ExtendedId {
+    fn from(id: TyCanId) -> Self {
+        #[allow(clippy::unwrap_used)]
+        ExtendedId::new(id.0).unwrap()
+    }
 }
 
 #[repr(C)]
@@ -161,8 +169,8 @@ pub struct TyCanProtocol {
     slot_map: RecvBuf, // 20KB
     socket_rx: Mutex<AsyncCanSocket<CanSocket>>,
     socket_tx: Mutex<AsyncCanSocket<CanSocket>>,
-    socket_rx_name: OnceLock<String>,
-    socket_tx_name: OnceLock<String>,
+    socket_rx_name: String,
+    socket_tx_name: String,
     id_counter: AtomicU8,
 }
 
@@ -271,12 +279,8 @@ impl DeviceAdaptor for TyCanProtocol {
         if len <= TY_CAN_PROTOCOL_SINGLE_FRAME_MAX as u16 {
             attach_single_frame_hdr(is_obc, &mut frame)?;
             let new_len = frame.len();
-            #[allow(clippy::unwrap_used)]
-            let can_frame = CanFrame::new(
-                ExtendedId::new(new_id.0).unwrap(),
-                &frame.data()[0..new_len],
-            )
-            .unwrap();
+            let can_id: ExtendedId = new_id.into();
+            let can_frame = construct_can_frame(can_id, &frame.data()[0..new_len])?;
             self.socket_tx.lock().await.write_frame(can_frame)?.await?;
         } else {
             // attach meta
@@ -286,12 +290,8 @@ impl DeviceAdaptor for TyCanProtocol {
 
             // first packet
             new_id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
-            #[allow(clippy::unwrap_used)]
-            let can_frame = CanFrame::new(
-                ExtendedId::new(new_id.0).unwrap(),
-                &frame.data()[0..TY_CAN_PROTOCOL_CAN_FRAME_SIZE],
-            )
-            .unwrap();
+            let first_pkt_can_id : ExtendedId = new_id.into();
+            let can_frame = construct_can_frame(first_pkt_can_id, &frame.data()[0..TY_CAN_PROTOCOL_CAN_FRAME_SIZE])?;
             self.socket_tx.lock().await.write_frame(can_frame)?.await?;
             remain -= TY_CAN_PROTOCOL_CAN_FRAME_SIZE as i32;
             offset += TY_CAN_PROTOCOL_CAN_FRAME_SIZE;
@@ -305,12 +305,8 @@ impl DeviceAdaptor for TyCanProtocol {
                 } else {
                     remain
                 };
-                #[allow(clippy::unwrap_used)]
-                let next_can_frame = CanFrame::new(
-                    ExtendedId::new(new_id.0).unwrap(),
-                    &frame.data()[offset..offset + this_len as usize],
-                )
-                .unwrap();
+                let next_can_id : ExtendedId = new_id.into();
+                let next_can_frame = construct_can_frame(next_can_id, &frame.data()[offset..offset + this_len as usize])?;
 
                 self.socket_tx
                     .lock()
@@ -352,23 +348,26 @@ impl TyCanProtocol {
             slot_map: RecvBuf::default(),
             socket_rx: socket_rx.into(),
             socket_tx: socket_tx.into(),
-            socket_rx_name: socket_rx_name.to_owned().into(),
-            socket_tx_name: socket_tx_name.to_owned().into(),
+            socket_rx_name: socket_rx_name.to_owned(),
+            socket_tx_name: socket_tx_name.to_owned(),
             id_counter: AtomicU8::new(0),
         })
     }
 
     #[allow(clippy::unwrap_used)]
     async fn setup_can_interface(socket_tx_name: &str, socket_rx_name: &str) -> io::Result<()> {
-        assert!(has_root_privilege(),"Can adaptor needs root privilege to set can interface and restart");
-        let tx_interface = CanInterface::open(socket_tx_name)?;
-        let rx_interface = CanInterface::open(socket_rx_name)?;
-        tx_interface.bring_down().unwrap();
-        tx_interface.set_bitrate(500_000, 875).unwrap();
-        rx_interface.bring_down().unwrap();
-        rx_interface.set_bitrate(500_000, 875).unwrap();
-        tx_interface.bring_up().unwrap();
-        rx_interface.bring_up().unwrap();
+        assert!(
+            has_root_privilege(),
+            "Can adaptor needs root privilege to set can interface and restart"
+        );
+        let _tx_interface = CanInterface::open(socket_tx_name)?;
+        let _rx_interface = CanInterface::open(socket_rx_name)?;
+        // tx_interface.bring_down().unwrap();
+        // tx_interface.set_bitrate(500_000, 875).unwrap();
+        // rx_interface.bring_down().unwrap();
+        // rx_interface.set_bitrate(500_000, 875).unwrap();
+        // tx_interface.bring_up().unwrap();
+        // rx_interface.bring_up().unwrap();
         #[cfg(feature = "netlink_can_error_detection")]
         Self::listen_to_netlink(socket_tx_name.to_owned(), socket_rx_name.to_owned());
         Ok(())
@@ -378,10 +377,8 @@ impl TyCanProtocol {
         log::info!("CAN socket restart");
         self.id_counter
             .store(0, std::sync::atomic::Ordering::Release);
-        #[allow(clippy::unwrap_used)]
-        let socket_rx_name = self.socket_rx_name.get().unwrap();
-        #[allow(clippy::unwrap_used)]
-        let socket_tx_name = self.socket_tx_name.get().unwrap();
+        let socket_rx_name = self.socket_rx_name.as_ref();
+        let socket_tx_name = self.socket_tx_name.as_ref();
         Self::reset_interfaces(socket_rx_name, socket_tx_name)?;
         log::info!("CAN socket reset done");
         Ok(())
@@ -450,6 +447,18 @@ impl TyCanProtocol {
     }
 }
 
+#[inline]
+#[allow(clippy::unwrap_used)]
+fn construct_can_frame(can_id: ExtendedId, data: &[u8]) -> io::Result<CanFrame> {
+    if data.len() > 8 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "data length is too large",
+        ));
+    }
+    Ok(CanFrame::new(can_id, data).unwrap())
+}
+
 fn construct_broadcast_can_frame(frame: &mut BusFrame) -> io::Result<CanFrame> {
     if frame.data().len() != 4 {
         return Err(io::Error::new(
@@ -467,8 +476,8 @@ fn construct_broadcast_can_frame(frame: &mut BusFrame) -> io::Result<CanFrame> {
     new_id.set_src_id(TY_CAN_OBC_ID);
     new_id.set_dest_id(TY_CAN_BROADCAST_ID);
     new_id.set_is_csp(false);
-    #[allow(clippy::unwrap_used)]
-    let can_frame = CanFrame::new(ExtendedId::new(new_id.0).unwrap(), &frame.data()[0..8]).unwrap();
+    let can_id: ExtendedId = new_id.into();
+    let can_frame = construct_can_frame(can_id, &frame.data()[0..8])?;
     Ok(can_frame)
 }
 
@@ -653,7 +662,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame, self_id: u8) -> io::Result<Opt
             );
         }
     };
-    Ok(None)
+    Ok(None) 
 }
 
 #[cfg(test)]

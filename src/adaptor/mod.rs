@@ -75,7 +75,6 @@ impl Frame {
             offset: FRAME_DEFAULT_START_OFFSET,
             data: Box::new([0u8; FRAME_DATA_LENGTH]),
         };
-        #[allow(clippy::indexing_slicing)] // checked in `data.len() > FRAME_MAX_LENGTH`
         frame.data[FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
             .copy_from_slice(data);
         frame.meta.len = data.len() as u16;

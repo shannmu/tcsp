@@ -2,10 +2,6 @@ use super::{Application, Frame};
 
 pub struct TeleMetry {}
 
-#[repr(C)]
-#[allow(unused)]
-struct TeleMetryResponse {}
-
 impl Application for TeleMetry {
     fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
         let mut response = Frame::new(Self::APPLICATION_ID);
@@ -13,7 +9,6 @@ impl Application for TeleMetry {
         response.meta_mut().dest_id = 0;
         response.set_len(100)?;
         let buf = response.data_mut();
-        #[allow(clippy::indexing_slicing)]
         for i in 0..100 {
             buf[i as usize] = frame.meta().dest_id;
         }

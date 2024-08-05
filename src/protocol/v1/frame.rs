@@ -138,7 +138,6 @@ fn insert_header(bus_frame: &mut BusFrame, application_id: u8) -> io::Result<()>
 
 fn install_header_if_needed(frame: &mut BusFrame) -> Result<(), io::Error> {
     let meta = &frame.meta;
-    #[allow(clippy::else_if_without_else)]
     if meta.flag.contains(FrameFlag::UartTelemetry) {
         // The application id=1 refers to the telemetry service.
         insert_header(frame, 0)?;
@@ -148,6 +147,8 @@ fn install_header_if_needed(frame: &mut BusFrame) -> Result<(), io::Error> {
         frame.shrink_head(2)?;
         // The application id=1 refers to the time sync service.
         insert_header(frame, 1)?;
+    }else{
+        {}
     }
     Ok(())
 }

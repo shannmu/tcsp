@@ -3,7 +3,11 @@
     // missing_docs,
     // clippy::exhaustive_enums,
     // clippy::exhaustive_structs,
-    // clippy::all,
+    clippy::all,
+    clippy::correctness,
+    clippy::perf,
+    clippy::complexity,
+    clippy::style,
     // clippy::pedantic,
     absolute_paths_not_starting_with_crate,
     rust_2021_incompatible_closure_captures,
@@ -47,6 +51,7 @@ mod protocol;
 mod server;
 #[cfg(test)]
 mod tests;
+mod utils;
 
 pub use adaptor::{DeviceAdaptor,TyCanProtocol,Uart};
 pub use server::TcspServerBuilder;

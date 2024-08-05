@@ -1,9 +1,5 @@
 #![allow(clippy::shadow_unrelated, clippy::unwrap_used)]
 use std::convert::Into;
-use std::mem::size_of;
-use std::os::fd::{AsFd, AsRawFd};
-use std::str::FromStr;
-use std::thread::sleep;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -11,12 +7,7 @@ use async_trait::async_trait;
 use nom::{bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, IResult};
 
 use serialport::SerialPort;
-use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
-
-use crate::protocol;
-use crate::protocol::v1::frame::FrameHeader;
 
 use super::{DeviceAdaptor, Frame, FrameFlag, FrameMeta};
 
@@ -49,7 +40,7 @@ impl Uart {
 }
 
 #[async_trait]
-impl<'a> DeviceAdaptor for Uart {
+impl DeviceAdaptor for Uart {
     async fn send(&self, buf: super::Frame) -> Result<(), super::DeviceAdaptorError> {
         let mut buf = buf.clone();
 
@@ -74,7 +65,7 @@ impl<'a> DeviceAdaptor for Uart {
 
         hasher.update(&data[3..data.len() - 1]);
         data[data.len() - 1] = hasher.finalize();
-        self.file.lock().await.write_all(&data)?;
+        self.file.lock().await.write_all(data)?;
 
         Ok(())
     }
@@ -92,14 +83,16 @@ impl<'a> DeviceAdaptor for Uart {
         let ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n])
             .map_err(|_| super::DeviceAdaptorError::FrameError("recv data error".to_string()))?
             .1;
-        let mut framemeta: FrameMeta = FrameMeta::default();
 
-        framemeta.len = ty_uart.data_len;
-        framemeta.dest_id = ty_uart.platform_id;
-        framemeta.id = ty_uart.req_id;
-        framemeta.data_type = ty_uart.data_type as u8;
-        framemeta.command_type = ty_uart.command_type.into();
-        framemeta.flag = FrameFlag::default();
+        let framemeta = FrameMeta {
+            len: ty_uart.data_len,
+            dest_id: ty_uart.platform_id,
+            id: ty_uart.req_id,
+            data_type: ty_uart.data_type as u8,
+            command_type: ty_uart.command_type.into(),
+            flag: FrameFlag::default(),
+            ..Default::default()
+        };
         let frame = Frame::new(framemeta, &ty_uart.data);
 
         frame.map_err(|_| super::DeviceAdaptorError::FrameError("recv data error".to_string()))
@@ -123,10 +116,11 @@ enum CommandType {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Header {
     Header = 0xEB90,
-    Other,
+    _Other,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[allow(clippy::enum_variant_names)]
 enum TeleCommand {
     BasicTeleCommand = 0x10,
     GeneralTeleCommand = 0x11,
@@ -146,9 +140,9 @@ enum Command {
     TeleMetry(TeleMetry),
 }
 
-impl Into<u8> for Command {
-    fn into(self) -> u8 {
-        match self {
+impl From<Command> for u8 {
+    fn from(val: Command) -> Self {
+        match val {
             Command::TeleCommand(TeleCommand::BasicTeleCommand) => 0x10,
             Command::TeleCommand(TeleCommand::GeneralTeleCommand) => 0x11,
             Command::TeleCommand(TeleCommand::UDPTeleCommnadBackup) => 0x12,
@@ -175,7 +169,7 @@ impl TyUartProtocol {
     pub fn from_slice_to_self(input: &[u8]) -> IResult<&[u8], TyUartProtocol> {
         log::debug!("Starting parsing recv data stage 1");
         let original_input = input;
-        let (input, (header, platform_id, mut data_len, data_type, command_type, req_id)) =
+        let (input, (header, platform_id, data_len, data_type, command_type, req_id)) =
             tuple((
                 Self::header_parser,
                 Self::platform_id_parser,
@@ -185,11 +179,11 @@ impl TyUartProtocol {
                 Self::req_id_parser,
             ))(input)?;
         log::debug!("Starting parsing recv data stage 2");
-        let (input, mut data) = Self::data_parser(input, data_len)?;
+        let (input, data) = Self::data_parser(input, data_len)?;
         log::debug!("Starting parsing recv data stage 3");
         let (input, checksum) = Self::checksum_parser(input)?;
 
-        if input.len() != 0usize {
+        if !input.is_empty() {
             return Err(nom::Err::Error(nom::error::Error::new(
                 input,
                 nom::error::ErrorKind::Verify,
@@ -240,11 +234,11 @@ impl TyUartProtocol {
             let mut result = [0u8; 2];
             result.copy_from_slice(input);
             let res = u16::from_be_bytes(result);
-            let res = match res {
+            
+            match res {
                 0xEB90 => Ok(Header::Header),
                 _ => Err(ErrorKind::Tag),
-            };
-            res
+            }
         })(input)
     }
 
@@ -274,13 +268,13 @@ impl TyUartProtocol {
             let mut result = [0u8; 1];
             result.copy_from_slice(input);
             let res = u8::from_be_bytes(result);
-            let res = match res {
+            
+            match res {
                 0x35 => Ok(CommandType::TeleCommand),
                 0x05 => Ok(CommandType::TeleMetry),
                 // TODO: change the ErrorKind
                 _ => Err(ErrorKind::Tag),
-            };
-            res
+            }
         })(input)
     }
 
@@ -290,7 +284,8 @@ impl TyUartProtocol {
             let mut result = [0u8; 1];
             result.copy_from_slice(input);
             let res = u8::from_be_bytes(result);
-            let res = match res {
+            
+            match res {
                 0x10 => Ok(Command::TeleCommand(TeleCommand::BasicTeleCommand)),
                 0x11 => Ok(Command::TeleCommand(TeleCommand::GeneralTeleCommand)),
                 0x12 => Ok(Command::TeleCommand(TeleCommand::UDPTeleCommnadBackup)),
@@ -299,8 +294,7 @@ impl TyUartProtocol {
                 0x23 => Ok(Command::TeleMetry(TeleMetry::CANTeleMetryBackup)),
                 // TODO: change the ErrorKind
                 _ => Err(ErrorKind::Tag),
-            };
-            res
+            }
         })(input)
     }
 

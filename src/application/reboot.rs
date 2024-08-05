@@ -5,8 +5,7 @@ pub struct Reboot {}
 
 impl Application for Reboot {
     fn handle(&self, _frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        #[allow(clippy::unwrap_used)]
-        let response = Frame::new_from_slice(Self::APPLICATION_ID,"ok".as_bytes()).unwrap();
+        let response = Frame::new_from_slice(Self::APPLICATION_ID,"ok".as_bytes())?;
         log::info!("receive reboot",);
         Ok(Some(response))
       

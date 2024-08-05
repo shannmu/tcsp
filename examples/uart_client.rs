@@ -1,5 +1,5 @@
-use serialport;
 use std::time::Duration;
+
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
@@ -29,6 +29,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let n = port.lock().await.read(&mut buf)?;
         log::info!("recv data: {:?}", &buf[..n]);
     }
-
-    Ok(())
 }

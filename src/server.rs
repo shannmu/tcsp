@@ -87,9 +87,10 @@ impl<D: DeviceAdaptor + 'static> TcspServer<D> {
                     };
                     log::debug!("response:{:?}", response);
                     if let Some(response) = response {
-                        #[allow(clippy::unwrap_used)]
-                        if let Err(e) = server.adaptor.send(response.try_into().unwrap()).await {
-                            log::error!("faild to send application response:{}", e);
+                        if let Ok(resp) = response.try_into(){
+                            if let Err(e) = server.adaptor.send(resp).await {
+                                log::error!("faild to send application response:{}", e);
+                            }
                         }
                     }
                 }
