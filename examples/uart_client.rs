@@ -29,11 +29,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = [0u8; 150];
         loop {
             let n = port.lock().await.read(&mut buf);
+            let mut takes_frame = false;
             match n {
                 Ok(n) => {
                     if buf[0] == 0xeb && buf[1] == 0x90 {
                         log::info!("recv frame: {:?}", &buf[..n]);
-                        break;
+                        takes_frame = true;
                     } else {
                         log::warn!("recv invalid frame: {:?}", &buf[..n]);
                     }
@@ -44,6 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             sleep(Duration::from_secs(5)).await;
+            if takes_frame {
+                break;
+            }
         }
     }
 }
