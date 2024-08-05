@@ -1,7 +1,7 @@
 use std::mem::size_of;
 use std::{io, sync::Arc};
 
-use crate::adaptor::{Channel, DeviceAdaptor, TyCanProtocol, TyUartProtocol, Uart};
+use crate::adaptor::{Channel, DeviceAdaptor, TyCanProtocol, Uart};
 
 const MAX_APPLICATION_HANDLER: usize = 256;
 pub struct TcspServer<D>(Arc<TcspInner<D>>);

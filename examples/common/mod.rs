@@ -11,7 +11,6 @@ impl FileLogger {
     fn new(file_path: &str, level: Level) -> Self {
         let file = OpenOptions::new()
             .create(true)
-            .write(true)
             .append(true)
             .open(file_path)
             .unwrap();

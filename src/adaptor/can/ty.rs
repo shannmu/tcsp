@@ -1,14 +1,15 @@
 use crate::adaptor::{DeviceAdaptor, DeviceAdaptorError};
+use crate::utils::has_root_privilege;
 
 use super::super::{Frame as BusFrame, FrameFlag, FrameMeta};
 use async_trait::async_trait;
 use bitfield::bitfield;
 use futures_util::StreamExt;
 use num_enum::TryFromPrimitive;
-use socketcan::CanInterface;
 use socketcan::{
     tokio::AsyncCanSocket, CanDataFrame, CanFrame, CanSocket, EmbeddedFrame, ExtendedId, Frame,
 };
+use socketcan::{CanFilter, CanInterface, SocketOptions};
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
@@ -37,7 +38,6 @@ const TY_CAN_PROTOCOL_UTILITES_SINGLE_RESPONSE: u8 = 0x02;
 const TY_CAN_PROTOCOL_UTILITES_MULTI_REQUEST: u8 = 0x03;
 const TY_CAN_PROTOCOL_UTILITES_MULTI_RESPONSE: u8 = 0x04;
 
-#[cfg(test)]
 const TY_CAN_ID_FILTER_MASK: u32 = 0x1fe000;
 const TY_CAN_ID_OFFSET: usize = 13;
 const TY_CAN_BROADCAST_ID: u8 = 0xfd;
@@ -334,14 +334,13 @@ impl TyCanProtocol {
         Self::setup_can_interface(socket_tx_name, socket_rx_name).await?;
         let socket_rx = AsyncCanSocket::open(socket_rx_name)?;
         let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
-        // socket_rx.set_filters(&[CanFilter::new(
-        //     (id as u32) << TY_CAN_ID_OFFSET,
-        //     TY_CAN_ID_FILTER_MASK,
-        // )])?;
-        // socket_rx.set_filters(&[CanFilter::new(
-        //     (TY_CAN_BROADCAST_ID as u32) << TY_CAN_ID_OFFSET,
-        //     TY_CAN_ID_FILTER_MASK,
-        // )])?;
+        socket_rx.set_filters(&[
+            CanFilter::new((id as u32) << TY_CAN_ID_OFFSET, TY_CAN_ID_FILTER_MASK),
+            CanFilter::new(
+                (TY_CAN_BROADCAST_ID as u32) << TY_CAN_ID_OFFSET,
+                TY_CAN_ID_FILTER_MASK,
+            ),
+        ])?;
         log::debug!(
             "socket rx = {}, socket tx= {},filter = {}",
             socket_rx_name,
@@ -361,6 +360,7 @@ impl TyCanProtocol {
 
     #[allow(clippy::unwrap_used)]
     async fn setup_can_interface(socket_tx_name: &str, socket_rx_name: &str) -> io::Result<()> {
+        assert!(has_root_privilege(),"Can adaptor needs root privilege to set can interface and restart");
         let tx_interface = CanInterface::open(socket_tx_name)?;
         let rx_interface = CanInterface::open(socket_rx_name)?;
         tx_interface.bring_down().unwrap();
@@ -702,8 +702,8 @@ mod tests {
 
         let mut id = TyCanId(0);
         id.set_src_id(0);
-        id.set_dest_id(0x43);
-        id.set_frame_type(TyCanProtocolFrameType::Reset as u8);
+        id.set_dest_id(0x46);
+        id.set_frame_type(TyCanProtocolFrameType::Single as u8);
         id.set_is_csp(false);
         id.set_pid(0x0);
         println!("{:2x}", id.0);

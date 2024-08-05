@@ -1,4 +1,4 @@
-use std::{env, num::ParseIntError, sync::Arc, time::Duration};
+use std::{num::ParseIntError, time::Duration};
 use tcsp::{adaptor::DeviceAdaptor, TeleMetry};
 use clap::Parser;
 use tcsp::TyCanProtocol;
@@ -50,6 +50,14 @@ async fn main() {
     init_logger("can_client.log", log::Level::Debug).unwrap();
 
     let args = Args::parse();
+    tokio::spawn(async move {
+        let listen_adaptor = TyCanProtocol::new(0, "can0", "can0").await.unwrap();
+        loop{
+            let pkt = listen_adaptor.recv().await;
+            log::info!("receive packet:{:?}",pkt);
+        }
+    });
+    
     let mut adaptor = TyCanProtocol::new(0, "can0", "can0").await.unwrap();
     if !args.deamon{
         for _ in 0..args.number{
