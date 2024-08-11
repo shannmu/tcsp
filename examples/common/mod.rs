@@ -1,4 +1,3 @@
-use std::{fs::{File, OpenOptions}, sync::Mutex};
 use log::{Level, Metadata, Record, SetLoggerError};
 
 struct FileLogger {

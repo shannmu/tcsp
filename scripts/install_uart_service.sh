@@ -53,6 +53,9 @@ WantedBy=multi-user.target"
 if $install; then
     sudo ln -s "$work_dir/tcsp_uart.service" /etc/systemd/system/tcsp_uart.service
     echo "$service" > "$work_dir/tcsp_uart.service"
+    sudo systemctl daemon-reload
+    echo "type \'sudo systemctl enable tcsp_uart.service\' to start server when booting system"
+    echo "type \'sudo systemctl start tcsp_uart.service\' to start service"
 else
     echo "$service"
 fi

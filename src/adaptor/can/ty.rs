@@ -12,7 +12,7 @@ use socketcan::{
 use socketcan::{CanFilter, CanInterface, SocketOptions};
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::OnceLock;
+
 #[cfg(feature = "netlink_can_error_detection")]
 use std::thread;
 use std::{
@@ -360,14 +360,14 @@ impl TyCanProtocol {
             has_root_privilege(),
             "Can adaptor needs root privilege to set can interface and restart"
         );
-        let _tx_interface = CanInterface::open(socket_tx_name)?;
-        let _rx_interface = CanInterface::open(socket_rx_name)?;
-        // tx_interface.bring_down().unwrap();
-        // tx_interface.set_bitrate(500_000, 875).unwrap();
-        // rx_interface.bring_down().unwrap();
-        // rx_interface.set_bitrate(500_000, 875).unwrap();
-        // tx_interface.bring_up().unwrap();
-        // rx_interface.bring_up().unwrap();
+        let tx_interface = CanInterface::open(socket_tx_name)?;
+        let rx_interface = CanInterface::open(socket_rx_name)?;
+        tx_interface.bring_down().unwrap();
+        tx_interface.set_bitrate(500_000, 875).unwrap();
+        rx_interface.bring_down().unwrap();
+        rx_interface.set_bitrate(500_000, 875).unwrap();
+        tx_interface.bring_up().unwrap();
+        rx_interface.bring_up().unwrap();
         #[cfg(feature = "netlink_can_error_detection")]
         Self::listen_to_netlink(socket_tx_name.to_owned(), socket_rx_name.to_owned());
         Ok(())

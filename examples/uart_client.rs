@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use serialport::SerialPort;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 

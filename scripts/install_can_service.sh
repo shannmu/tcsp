@@ -72,6 +72,9 @@ WantedBy=multi-user.target"
 if $install; then
     sudo ln -s "$work_dir/tcsp_can.service" /etc/systemd/system/tcsp_can.service
     echo "$service" > "$work_dir/tcsp_can.service"
+    sudo systemctl daemon-reload
+    echo "type \'sudo systemctl enable tcsp_can.service\' to start server when booting system"
+    echo "type \'sudo systemctl start tcsp_can.service\' to start service"
 else
     echo "$service"
 fi
