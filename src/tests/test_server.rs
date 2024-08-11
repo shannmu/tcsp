@@ -30,7 +30,7 @@ async fn test_server_channel() {
 
     // we expect to receive a response
     let resp = tx_receiver.recv().await.unwrap();
-    assert_eq!(resp.meta.len as usize, mtu);
+    assert_eq!(resp.meta.len as usize, 100);
 
     // suppose we receive a echo request
     let content = (1..=42)
