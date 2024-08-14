@@ -16,12 +16,15 @@ pub struct ZeromqSocket {
 
 #[async_trait]
 impl Fallback for ZeromqSocket {
-    #[allow(clippy::unwrap_used)]
     async fn fallback(&self, msg: Vec<u8>) -> std::io::Result<Vec<u8>> {
         let mut guard = self.socket.lock().await;
-        guard.send(msg.into()).await.unwrap();
+        guard.send(msg.into()).await.map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to send message: {:?}",e))
+        })?;
 
-        let recv_msg = guard.recv().await.unwrap();
+        let recv_msg = guard.recv().await.map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to recv message: {:?}",e))
+        })?;
         if let Some(bytes) = recv_msg.get(0) {
             Ok(bytes.to_vec())
         } else {
@@ -48,6 +51,7 @@ impl Default for ZeromqSocket {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct DummyFallback;
 
 #[async_trait]

@@ -15,10 +15,9 @@ async fn test_server_channel() {
     let (rx_sender, rx_receiver) = channel(32);
     let adaptor = Channel::new(tx_sender, rx_receiver);
     let socket = DummyFallback{};
-    let mtu = adaptor.mtu(FrameFlag::empty());
-    let tel: Arc<dyn Application> = Arc::new(TeleMetry::new(socket));
+    let tel: Arc<dyn Application> = Arc::new(TeleMetry::new(socket.clone()));
     let echo: Arc<dyn Application> = Arc::new(EchoCommand {});
-    let time: Arc<dyn Application> = Arc::new(TimeSync {});
+    let time: Arc<dyn Application> = Arc::new(TimeSync::new(socket));
     let applications = [tel,echo, time].into_iter();
     let server = TcspServer::new_channel(adaptor,applications);
     tokio::spawn(async move {
@@ -46,6 +45,6 @@ async fn test_server_channel() {
     assert_eq!(buf, (1..=42).collect::<Vec<u8>>());
 
     // suppose we recevie a time broadcast request
-    let time_req = TimeSync::request_now().unwrap();
+    let time_req = TimeSync::<()>::request_now().unwrap();
     rx_sender.send(time_req.try_into().unwrap()).await.unwrap();
 }

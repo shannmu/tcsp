@@ -327,7 +327,7 @@ impl DeviceAdaptor for TyCanProtocol {
 
 impl TyCanProtocol {
     pub async fn new(id: u8, socket_rx_name: &str, socket_tx_name: &str) -> io::Result<Self> {
-        Self::setup_can_interface(socket_tx_name, socket_rx_name).await?;
+        // Self::setup_can_interface(socket_tx_name, socket_rx_name).await?;
         let socket_rx = AsyncCanSocket::open(socket_rx_name)?;
         let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
         socket_rx.set_filters(&[

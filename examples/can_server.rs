@@ -1,4 +1,4 @@
-use std::{num::ParseIntError, sync::Arc};
+use std::{num::ParseIntError, sync::Arc, time::Duration};
 
 use clap::Parser;
 use tcsp::{
@@ -22,6 +22,7 @@ struct Args {
 
 mod common;
 use common::init_logger;
+use tokio::time::timeout;
 
 #[tokio::main]
 async fn main() {
@@ -31,17 +32,20 @@ async fn main() {
     log::debug!("can id = 0x{:x}", canid);
 
     let socket = ZeromqSocket::new();
-    socket
-        .connect("tcp://127.0.0.1:5555")
-        .await
-        .expect("Failed to connect");
+    timeout(
+        Duration::from_secs(2),
+        socket.connect("tcp://127.0.0.1:5555"),
+    )
+    .await
+    .expect("Connection timeout")
+    .expect("Failed to connect");
 
     #[allow(clippy::unwrap_used)]
     let adaptor = TyCanProtocol::new(canid, "can0", "can0").await.unwrap();
     let server = TcspServerBuilder::new_can(adaptor)
-        .with_application(Arc::new(TeleMetry::new(socket)))
+        .with_application(Arc::new(TeleMetry::new(socket.clone())))
         .with_application(Arc::new(EchoCommand {}))
-        .with_application(Arc::new(TimeSync {}))
+        .with_application(Arc::new(TimeSync::new(socket)))
         .with_application(Arc::new(Reboot {}))
         .build();
     server.listen().await;
