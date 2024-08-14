@@ -1,14 +1,17 @@
 mod echo;
-mod fallback;
 mod reboot;
 mod telemetry;
 mod time_sync;
+mod udp;
+
+/// The fallback is an adpter to the restrive adta or send data to the 
+mod fallback;
 
 use async_trait::async_trait;
 pub use echo::EchoCommand;
 pub use fallback::{Fallback, ZeromqSocket};
 pub use reboot::Reboot;
-pub use telemetry::{TeleMetry,telemetry_request_frame};
+pub use telemetry::TeleMetry;
 pub use time_sync::TimeSync;
 
 #[cfg(test)]

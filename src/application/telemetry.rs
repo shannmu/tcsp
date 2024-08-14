@@ -36,11 +36,14 @@ impl<F: Fallback> TeleMetry<F> {
     pub(crate) const APPLICATION_ID: u8 = 0;
 }
 
-pub fn telemetry_request_frame(src_id: u8, dst_id: u8) -> std::io::Result<Frame> {
-    let mut frame = Frame::new(0);
-    frame.meta_mut().src_id = src_id;
-    frame.meta_mut().dest_id = dst_id;
-    Ok(frame)
+
+impl<F> TeleMetry<F> {
+    pub fn request(src_id: u8, dst_id: u8) -> std::io::Result<Frame> {
+        let mut frame = Frame::new(0);
+        frame.meta_mut().src_id = src_id;
+        frame.meta_mut().dest_id = dst_id;
+        Ok(frame)
+    }
 }
 
 impl<F: Fallback> TeleMetry<F> {

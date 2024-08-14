@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tokio::{self, sync::mpsc::channel};
 
 use crate::{
-    adaptor::{Channel, DeviceAdaptor, FrameFlag},
-    application::{telemetry_request_frame, Application, DummyFallback, EchoCommand, TeleMetry, TimeSync},
+    adaptor::Channel,
+    application::{Application, DummyFallback, EchoCommand, TeleMetry, TimeSync},
     protocol::v1::frame::Frame,
     server::TcspServer,
 };
@@ -25,7 +25,7 @@ async fn test_server_channel() {
     });
 
     // suppose we receive a telemetry request
-    let telemetry_req = telemetry_request_frame(0, 0).unwrap();
+    let telemetry_req = TeleMetry::<()>::request(0, 0).unwrap();
     rx_sender.send(telemetry_req.try_into().unwrap()).await.unwrap();
 
     // we expect to receive a response

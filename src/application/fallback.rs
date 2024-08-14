@@ -6,9 +6,11 @@ use zeromq::{Socket, SocketRecv, SocketSend, ZmqResult};
 
 #[async_trait]
 pub trait Fallback: Send + Sync {
+    /// Provide a fallback mechanism for the application
     async fn fallback(&self, msg: Vec<u8>) -> std::io::Result<Vec<u8>>;
 }
 
+/// A ZeroMQ socket fallback
 #[derive(Clone)]
 pub struct ZeromqSocket {
     socket: Arc<Mutex<zeromq::ReqSocket>>,
@@ -51,6 +53,7 @@ impl Default for ZeromqSocket {
     }
 }
 
+/// A dummpy fallback. Used for testing
 #[derive(Clone)]
 pub(crate) struct DummyFallback;
 
