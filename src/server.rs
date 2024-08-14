@@ -71,30 +71,19 @@ impl<D: DeviceAdaptor + 'static> TcspServer<D> {
             let frame = Frame::try_from(bus_frame)?;
             log::info!("receive application={}", frame.application());
             let server = Arc::<TcspInner<D>>::clone(&self.0);
-            // TODO: we can spawn here. but we need to add flow control for sending, otherwise it may cause bus error
-            tokio::spawn(async move {
-                let mtu = (server.adaptor.mtu(frame.meta().flag) - size_of::<FrameHeader>()) as u16;
-                let application_id = frame.application();
+            let mtu = (server.adaptor.mtu(frame.meta().flag) - size_of::<FrameHeader>()) as u16;
+            let application_id = frame.application();
 
-                if let Some(Some(application)) = server.applications.get(application_id as usize) {
-                    let response_result = application.handle(frame, mtu);
-                    let response = match response_result {
-                        Ok(response) => response,
-                        Err(e) => {
-                            log::error!("faild to handle application:{}", e);
-                            return;
-                        }
-                    };
-                    log::debug!("response:{:?}", response);
-                    if let Some(response) = response {
-                        if let Ok(resp) = response.try_into(){
-                            if let Err(e) = server.adaptor.send(resp).await {
-                                log::error!("faild to send application response:{}", e);
-                            }
-                        }
+            if let Some(Some(application)) = server.applications.get(application_id as usize) {
+                let response = application.handle(frame, mtu).await?;
+                log::debug!("response:{:?}", response);
+                if let Some(response) = response {
+                    let resp = response.try_into()?;
+                    if let Err(e) = server.adaptor.send(resp).await {
+                        log::error!("faild to send application response:{}", e);
                     }
                 }
-            });
+            }
         }
         Ok(())
     }

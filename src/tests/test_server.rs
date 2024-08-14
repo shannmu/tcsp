@@ -4,7 +4,7 @@ use tokio::{self, sync::mpsc::channel};
 
 use crate::{
     adaptor::{Channel, DeviceAdaptor, FrameFlag},
-    application::{Application, EchoCommand, TeleMetry, TimeSync},
+    application::{telemetry_request_frame, Application, DummyFallback, EchoCommand, TeleMetry, TimeSync},
     protocol::v1::frame::Frame,
     server::TcspServer,
 };
@@ -14,23 +14,24 @@ async fn test_server_channel() {
     let (tx_sender, mut tx_receiver) = channel(32);
     let (rx_sender, rx_receiver) = channel(32);
     let adaptor = Channel::new(tx_sender, rx_receiver);
+    let socket = DummyFallback{};
     let mtu = adaptor.mtu(FrameFlag::empty());
-    let tel: Arc<dyn Application> = Arc::new(TeleMetry {});
+    let tel: Arc<dyn Application> = Arc::new(TeleMetry::new(socket));
     let echo: Arc<dyn Application> = Arc::new(EchoCommand {});
     let time: Arc<dyn Application> = Arc::new(TimeSync {});
-    let applications = [tel, echo, time].into_iter();
+    let applications = [tel,echo, time].into_iter();
     let server = TcspServer::new_channel(adaptor,applications);
     tokio::spawn(async move {
         server.listen().await;
     });
 
     // suppose we receive a telemetry request
-    let telemetry_req = TeleMetry::request(0,0).unwrap();
+    let telemetry_req = telemetry_request_frame(0, 0).unwrap();
     rx_sender.send(telemetry_req.try_into().unwrap()).await.unwrap();
 
     // we expect to receive a response
     let resp = tx_receiver.recv().await.unwrap();
-    assert_eq!(resp.meta.len as usize, 100);
+    assert_eq!(resp.meta.len as usize, 102);
 
     // suppose we receive a echo request
     let content = (1..=42)

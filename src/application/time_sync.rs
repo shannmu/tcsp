@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::io;
 
@@ -5,8 +6,9 @@ use super::{Application, Frame};
 
 pub struct TimeSync {}
 
+#[async_trait]
 impl Application for TimeSync {
-    fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
+    async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
         log::info!("{:?}", frame.data());
         let time_slice: [u8; 4] = frame.data()[..4].try_into().map_err(|_| {
             io::Error::new(

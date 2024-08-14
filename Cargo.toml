@@ -20,6 +20,7 @@ serialport = {version = "4.3.0", default-features = false}
 crc = "3.2.1"
 libc = "0.2.155"
 clap = {version="4.5.11",features=["derive"]}
+zeromq = "0.4.0"
 
 [features]
 default=[]

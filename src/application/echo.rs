@@ -1,11 +1,14 @@
 use std::io;
 
+use async_trait::async_trait;
+
 use super::{Application, Frame};
 
 pub struct EchoCommand;
 
+#[async_trait]
 impl Application for EchoCommand {
-    fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
+    async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
         let response = Frame::new_from_slice(Self::APPLICATION_ID, frame.data())?;
         Ok(Some(response))
     }
