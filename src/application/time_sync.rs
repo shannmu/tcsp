@@ -22,10 +22,10 @@ impl<F: Fallback> Application for TimeSync<F> {
             )
         })?;
         let future_to_wait = self.fallback.fallback(vec![
+            0x00,
+            0x00,
             0xea,
             0x61,
-            0x00,
-            0x00,
             time_slice[0],
             time_slice[1],
             time_slice[2],
