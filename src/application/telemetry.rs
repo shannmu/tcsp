@@ -16,8 +16,8 @@ impl<F: Fallback> Application for TeleMetry<F> {
         response.set_meta(frame.meta());
         response.meta_mut().dest_id = 0;
         response.set_len(100)?;
-
-        let send_future = self.fallback.fallback("60000".to_owned().into_bytes());
+        const TELEMETRY_CODE :  [u8;4]= 0xea600000u32.to_be_bytes();
+        let send_future = self.fallback.fallback(TELEMETRY_CODE.to_vec());
         let reply = timeout(Duration::from_millis(100), send_future).await??;
         let buf = response.data_mut();
 

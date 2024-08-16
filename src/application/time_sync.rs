@@ -8,11 +8,11 @@ use tokio::time::timeout;
 use super::{Application, Fallback, Frame};
 
 pub struct TimeSync<F> {
-    fallback : F,
+    fallback: F,
 }
 
 #[async_trait]
-impl<F:Fallback> Application for TimeSync<F> {
+impl<F: Fallback> Application for TimeSync<F> {
     async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
         // log::info!("{:?}", frame.data());
         let time_slice: [u8; 4] = frame.data()[..4].try_into().map_err(|_| {
@@ -21,7 +21,18 @@ impl<F:Fallback> Application for TimeSync<F> {
                 "Can not convert time slice to [u8;4]",
             )
         })?;
-        let future_to_wait = self.fallback.fallback(vec![time_slice[0],time_slice[1],time_slice[2],time_slice[3],0,0]);
+        let future_to_wait = self.fallback.fallback(vec![
+            0xea,
+            0x61,
+            0x00,
+            0x00,
+            time_slice[0],
+            time_slice[1],
+            time_slice[2],
+            time_slice[3],
+            0,
+            0,
+        ]);
         // we ignore the reply
         let _reply = timeout(Duration::from_millis(100), future_to_wait).await??;
         let timestamp = u32::from_be_bytes(time_slice);
@@ -55,7 +66,6 @@ impl<F> TimeSync<F> {
         Self::request(datetime)
     }
 }
-
 
 impl<F: Fallback> TimeSync<F> {
     pub fn new(fallback: F) -> Self {
