@@ -5,15 +5,15 @@ use bitflags::bitflags;
 use thiserror::Error;
 
 mod can;
-mod uart;
 mod channel;
+mod uart;
+pub use can::ty::TyCanProtocol;
 pub use channel::Channel;
 pub use uart::TyUartProtocol;
 pub use uart::Uart;
-pub use can::ty::TyCanProtocol;
 
 #[async_trait]
-pub trait DeviceAdaptor: Send + Sync{
+pub trait DeviceAdaptor: Send + Sync {
     /// Send a bus frame to the bus
     async fn send(&self, frame: Frame) -> Result<(), DeviceAdaptorError>;
 
@@ -22,7 +22,7 @@ pub trait DeviceAdaptor: Send + Sync{
     async fn recv(&self) -> Result<Frame, DeviceAdaptorError>;
 
     /// The mtu of the bus frame. Typically, the data excced the mtu may discard by adaptor, or the adaptor can return an error.
-    /// 
+    ///
     /// Some devices like uart may have different mtu when giving different `FrameFlag`.
     fn mtu(&self, flag: FrameFlag) -> usize;
 }
@@ -34,13 +34,13 @@ const FRAME_DEFAULT_START_OFFSET: u16 = 16;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FrameMeta {
-    pub(crate)src_id: u8,
-    pub(crate)dest_id: u8,
-    pub(crate)id: u8,
-    pub(crate)len: u16,
-    pub(crate)data_type: u8,
-    pub(crate)command_type: u8,
-    pub(crate)flag: FrameFlag,
+    pub(crate) src_id: u8,
+    pub(crate) dest_id: u8,
+    pub(crate) id: u8,
+    pub(crate) len: u16,
+    pub(crate) data_type: u8,
+    pub(crate) command_type: u8,
+    pub(crate) flag: FrameFlag,
 }
 
 impl FrameMeta {
@@ -58,7 +58,7 @@ bitflags! {
 }
 
 /// A `Frame` is a data structure that report meta and data payload of Can, Uart or other bus frame
-/// 
+///
 /// The `Frame` use a fixed size(which is `FRAME_DATA_LENGTH`) of u8 buffer, and it is allocated on the heap.
 /// The frame's buffer can expand or shrink at a certain range. For the heading side, you can expand at most `FRAME_DEFAULT_START_OFFSET` bytes.
 /// And at the ending side, you can expand only FRAME_PADDING - FRAME_DEFAULT_START_OFFSET bytes, which is 2 bytes currently.
@@ -66,22 +66,39 @@ bitflags! {
 /// So be careful when you use these methods.
 #[derive(Debug, Clone)]
 pub struct Frame {
-    pub(crate)meta: FrameMeta,
+    pub(crate) meta: FrameMeta,
     offset: u16,
-    data: Box<[u8; FRAME_DATA_LENGTH]>,
+    data: Vec<u8>,
 }
 
 impl Frame {
     pub(crate) fn new(meta: FrameMeta, data: &[u8]) -> io::Result<Self> {
         if data.len() > FRAME_MAX_LENGTH {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "buffer too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "buffer too large",
+            ));
         }
         let mut frame = Frame {
             meta,
             offset: FRAME_DEFAULT_START_OFFSET,
-            data: Box::new([0u8; FRAME_DATA_LENGTH]),
+            data: Vec::with_capacity(FRAME_DATA_LENGTH),
         };
-        frame.data[FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
+        frame.data
+            [FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
+            .copy_from_slice(data);
+        frame.meta.len = data.len() as u16;
+        Ok(frame)
+    }
+
+    pub(crate) fn extended(meta: FrameMeta, data: &[u8]) -> io::Result<Self> {
+        let mut frame = Frame {
+            meta,
+            offset: FRAME_DEFAULT_START_OFFSET,
+            data: Vec::with_capacity(data.len() + FRAME_PADDING),
+        };
+        frame.data
+            [FRAME_DEFAULT_START_OFFSET.into()..(FRAME_DEFAULT_START_OFFSET as usize + data.len())]
             .copy_from_slice(data);
         frame.meta.len = data.len() as u16;
         Ok(frame)
@@ -102,7 +119,7 @@ impl Frame {
     pub(crate) fn expand_head(&mut self, len: usize) -> io::Result<()> {
         let len = len as u16;
         let offset = self.offset as i32;
-        if offset - (len as i32) < 0  {
+        if offset - (len as i32) < 0 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "expand_head"));
         }
         self.offset -= len;
@@ -116,9 +133,9 @@ impl Frame {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "expand_head"));
         }
         self.offset += len;
-        if self.meta.len < len{
+        if self.meta.len < len {
             self.meta.len = 0
-        }else{
+        } else {
             self.meta.len -= len;
         }
         Ok(())
@@ -151,7 +168,7 @@ impl Default for Frame {
         Self {
             meta: Default::default(),
             offset: FRAME_DEFAULT_START_OFFSET,
-            data: Box::new([0u8; FRAME_DATA_LENGTH]),
+            data: Vec::with_capacity(FRAME_DATA_LENGTH),
         }
     }
 }
@@ -181,36 +198,43 @@ impl From<io::Error> for DeviceAdaptorError {
     }
 }
 
-
 #[cfg(test)]
-mod tests{
-    use crate::adaptor::{FRAME_DATA_LENGTH, FRAME_DEFAULT_START_OFFSET, FRAME_MAX_LENGTH, FRAME_PADDING};
+mod tests {
+    use crate::adaptor::{
+        FRAME_DATA_LENGTH, FRAME_DEFAULT_START_OFFSET, FRAME_MAX_LENGTH, FRAME_PADDING,
+    };
 
     use super::Frame;
 
     #[test]
-    fn test_buffer_head_expand_and_shrink(){
+    fn test_buffer_head_expand_and_shrink() {
         let mut buffer = Frame::default();
         assert!(buffer.expand_head(10).is_ok());
-        assert!(buffer.expand_head((FRAME_DEFAULT_START_OFFSET - 10).into()).is_ok());
+        assert!(buffer
+            .expand_head((FRAME_DEFAULT_START_OFFSET - 10).into())
+            .is_ok());
         assert!(buffer.expand_head(1).is_err());
 
         assert!(buffer.shrink_head(5).is_ok());
         assert_eq!(buffer.meta.len, FRAME_DEFAULT_START_OFFSET - 5);
-        assert!(buffer.shrink_head(FRAME_DEFAULT_START_OFFSET.into()).is_ok());
+        assert!(buffer
+            .shrink_head(FRAME_DEFAULT_START_OFFSET.into())
+            .is_ok());
         assert_eq!(buffer.meta.len, 0);
 
         assert!(buffer.shrink_head(FRAME_DATA_LENGTH).is_err());
     }
 
     #[test]
-    fn test_buffer_shrink(){
+    fn test_buffer_shrink() {
         let mut buffer = Frame::default();
         assert!(buffer.expand_tail(1).is_ok());
         assert_eq!(buffer.meta.len, 1);
         assert!(buffer.expand_tail(FRAME_MAX_LENGTH).is_ok());
         assert_eq!(buffer.meta.len as usize, FRAME_MAX_LENGTH + 1);
-        assert!(buffer.expand_tail(FRAME_PADDING - FRAME_DEFAULT_START_OFFSET as usize -1).is_ok());
+        assert!(buffer
+            .expand_tail(FRAME_PADDING - FRAME_DEFAULT_START_OFFSET as usize - 1)
+            .is_ok());
         assert!(buffer.expand_tail(1).is_err());
     }
 }

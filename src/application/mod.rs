@@ -1,11 +1,13 @@
+mod download;
 mod echo;
 mod reboot;
+mod reset_network;
 mod telemetry;
 mod time_sync;
 mod udp_control;
-mod reset_network;
+mod upload;
 
-/// The fallback is an adpter to the restrive adta or send data to the 
+/// The fallback is an adpter to the restrive adta or send data to the
 mod fallback;
 
 use async_trait::async_trait;
@@ -29,5 +31,5 @@ pub trait Application: Send + Sync {
 
     fn application_id(&self) -> u8;
 
-    async fn init(&self){}
+    async fn init(&self) {}
 }
