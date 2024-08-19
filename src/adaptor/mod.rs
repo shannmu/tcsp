@@ -43,6 +43,12 @@ pub struct FrameMeta {
     pub(crate)flag: FrameFlag,
 }
 
+impl FrameMeta {
+    pub fn exchange_src_dest(&mut self) {
+        std::mem::swap(&mut self.src_id, &mut self.dest_id);
+    }
+}
+
 bitflags! {
     #[derive(Debug,Clone,Copy,Default, PartialEq, Eq)]
     pub struct FrameFlag: u8 {
@@ -155,7 +161,7 @@ pub enum DeviceAdaptorError {
     #[error("Frame construct error")]
     FrameError(String),
 
-    #[error("Bus error")]
+    #[error("Bus error:{:?}",0)]
     BusError(Box<dyn std::error::Error>),
 
     #[error("No data available now")]

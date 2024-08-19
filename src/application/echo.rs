@@ -9,7 +9,9 @@ pub struct EchoCommand;
 #[async_trait]
 impl Application for EchoCommand {
     async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        let response = Frame::new_from_slice(Self::APPLICATION_ID, frame.data())?;
+        let mut response = Frame::new_from_slice(Self::APPLICATION_ID, frame.data())?;
+        response.set_meta_from_request(frame.meta());
+        
         Ok(Some(response))
     }
 

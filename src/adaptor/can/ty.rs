@@ -292,7 +292,14 @@ impl DeviceAdaptor for TyCanProtocol {
             new_id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
             let first_pkt_can_id : ExtendedId = new_id.into();
             let can_frame = construct_can_frame(first_pkt_can_id, &frame.data()[0..TY_CAN_PROTOCOL_CAN_FRAME_SIZE])?;
-            self.socket_tx.lock().await.write_frame(can_frame)?.await?;
+
+            {
+                let guard = self.socket_tx.lock().await;
+                if let Err(e) = guard.write_frame(can_frame)?.await{
+                    log::error!("{:?}",e);
+                    guard.write_frame(can_frame)?.await?
+                }
+            }
             remain -= TY_CAN_PROTOCOL_CAN_FRAME_SIZE as i32;
             offset += TY_CAN_PROTOCOL_CAN_FRAME_SIZE;
 
@@ -327,7 +334,7 @@ impl DeviceAdaptor for TyCanProtocol {
 
 impl TyCanProtocol {
     pub async fn new(id: u8, socket_rx_name: &str, socket_tx_name: &str) -> io::Result<Self> {
-        // Self::setup_can_interface(socket_tx_name, socket_rx_name).await?;
+        Self::setup_can_interface(socket_tx_name, socket_rx_name).await?;
         let socket_rx = AsyncCanSocket::open(socket_rx_name)?;
         let socket_tx = AsyncCanSocket::open(socket_tx_name)?;
         socket_rx.set_filters(&[

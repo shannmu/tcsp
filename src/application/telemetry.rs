@@ -13,8 +13,7 @@ pub struct TeleMetry<F> {
 impl<F: Fallback> Application for TeleMetry<F> {
     async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
         let mut response = Frame::new(Self::APPLICATION_ID);
-        response.set_meta(frame.meta());
-        response.meta_mut().dest_id = 0;
+        response.set_meta_from_request(frame.meta());
         response.set_len(100)?;
         const TELEMETRY_CODE :  [u8;4]= [0,0,0xea,0x60];
         let send_future = self.fallback.fallback(TELEMETRY_CODE.to_vec());

@@ -126,6 +126,13 @@ impl Frame {
     pub(crate) fn set_meta(&mut self, meta: &FrameMeta) {
         self.bus_frame.meta = *meta;
     }
+
+    /// Given a request frame, set the meta of the response frame.
+    /// The source and destination of the response frame are exchanged.
+    pub(crate) fn set_meta_from_request(&mut self, meta: &FrameMeta) {
+        self.bus_frame.meta = *meta;
+        self.bus_frame.meta.exchange_src_dest();
+    }
 }
 
 fn insert_header(bus_frame: &mut BusFrame, application_id: u8) -> io::Result<()> {
