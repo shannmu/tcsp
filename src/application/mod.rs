@@ -3,6 +3,7 @@ mod reboot;
 mod telemetry;
 mod time_sync;
 mod udp_control;
+mod reset_network;
 
 /// The fallback is an adpter to the restrive adta or send data to the 
 mod fallback;
@@ -27,4 +28,6 @@ pub trait Application: Send + Sync {
     async fn handle(&self, frame: Frame, mtu: u16) -> std::io::Result<Option<Frame>>;
 
     fn application_id(&self) -> u8;
+
+    async fn init(&self){}
 }
