@@ -7,6 +7,7 @@ mod frame;
 mod uart;
 
 pub use can::ty::TyCanProtocol;
+pub(crate) use can::ty::send_using_ty_protocol;
 pub use channel::Channel;
 pub use error::DeviceAdaptorError;
 pub use frame::{Frame, FrameFlag, FrameMeta};

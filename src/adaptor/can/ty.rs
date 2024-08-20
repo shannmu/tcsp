@@ -257,78 +257,117 @@ impl DeviceAdaptor for TyCanProtocol {
     /// Othersewise, the send will send a response as default.
     ///
     /// When sending a Time broadcast, the caller should provide a 4 bytes buffer and set the `CanTimeBroadcast` flag.
-    async fn send(&self, mut frame: BusFrame) -> Result<(), DeviceAdaptorError> {
-        let len = frame.meta.len;
-        if len > TY_CAN_PROTOCOL_PAYLOAD_MAX_SIZE as u16 {
-            return Err(DeviceAdaptorError::FrameError("invalid length".to_owned()));
-        }
-        if frame.meta.flag.contains(FrameFlag::CanTimeBroadcast) {
-            let can_frame = construct_broadcast_can_frame(&mut frame)?;
-            self.socket_tx.lock().await.write_frame(can_frame)?.await?;
-            return Ok(());
-        }
-        let mut new_id = TyCanId(0);
-        let is_obc = frame.meta.src_id == TY_CAN_OBC_ID;
-        new_id.set_src_id(self.src_id.load(Ordering::Relaxed));
-        new_id.set_dest_id(frame.meta.dest_id);
-        new_id.set_is_csp(false);
+    async fn send(&self, frame: BusFrame) -> Result<(), DeviceAdaptorError> {
+        let src_id = self.src_id.load(Ordering::Relaxed);
         let id = self
             .id_counter
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        new_id.set_pid(id);
-        if len <= TY_CAN_PROTOCOL_SINGLE_FRAME_MAX as u16 {
-            attach_single_frame_hdr(is_obc, &mut frame)?;
-            let new_len = frame.len();
-            let can_id: ExtendedId = new_id.into();
-            let can_frame = construct_can_frame(can_id, &frame.data()[0..new_len])?;
-            self.socket_tx.lock().await.write_frame(can_frame)?.await?;
-        } else {
-            // attach meta
-            attach_multi_frame_hdr_and_checksum(is_obc, &mut frame)?;
-            let mut remain: i32 = frame.meta.len.into();
-            let mut offset: usize = 0;
-
-            // first packet
-            new_id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
-            let first_pkt_can_id : ExtendedId = new_id.into();
-            let can_frame = construct_can_frame(first_pkt_can_id, &frame.data()[0..TY_CAN_PROTOCOL_CAN_FRAME_SIZE])?;
-
-            {
-                let guard = self.socket_tx.lock().await;
-                if let Err(e) = guard.write_frame(can_frame)?.await{
-                    log::error!("{:?}",e);
-                    guard.write_frame(can_frame)?.await?
-                }
-            }
-            remain -= TY_CAN_PROTOCOL_CAN_FRAME_SIZE as i32;
-            offset += TY_CAN_PROTOCOL_CAN_FRAME_SIZE;
-
-            // middle packet
-            new_id.set_frame_type(TyCanProtocolFrameType::MultiMiddle as u8);
-
-            while remain > 0 {
-                let this_len = if remain > TY_CAN_PROTOCOL_CAN_FRAME_SIZE as i32 {
-                    TY_CAN_PROTOCOL_CAN_FRAME_SIZE as i32
-                } else {
-                    remain
-                };
-                let next_can_id : ExtendedId = new_id.into();
-                let next_can_frame = construct_can_frame(next_can_id, &frame.data()[offset..offset + this_len as usize])?;
-
-                self.socket_tx
-                    .lock()
-                    .await
-                    .write_frame(next_can_frame)?
-                    .await?;
-                remain -= this_len;
-                offset += this_len as usize;
-            }
-        }
+        let _sended_can_frame = send_using_ty_protocol(&self.socket_tx, src_id, id, frame).await?;
         Ok(())
     }
 
     fn mtu(&self, _flag: FrameFlag) -> usize {
         TY_CAN_PROTOCOL_PAYLOAD_MAX_SIZE
+    }
+}
+
+#[async_trait]
+pub(crate) trait WriteFrame {
+    async fn write_frame(&self, frame: CanFrame) -> Result<(), DeviceAdaptorError>;
+}
+
+#[async_trait]
+impl WriteFrame for Mutex<AsyncCanSocket<CanSocket>> {
+    async fn write_frame(&self, frame: CanFrame) -> Result<(), DeviceAdaptorError> {
+        self.lock().await.write_frame(frame)?.await?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl WriteFrame for Mutex<Vec<CanFrame>> {
+    async fn write_frame(&self, frame: CanFrame) -> Result<(), DeviceAdaptorError> {
+        self.lock().await.push(frame);
+        Ok(())
+    }
+}
+
+pub(crate) async fn send_using_ty_protocol<CanSocketTx: WriteFrame>(
+    can_socket_tx: &CanSocketTx,
+    src_id: u8,
+    id: u8,
+    mut frame: BusFrame,
+) -> Result<usize, DeviceAdaptorError> {
+    let len = frame.meta.len;
+    if len > TY_CAN_PROTOCOL_PAYLOAD_MAX_SIZE as u16 {
+        return Err(DeviceAdaptorError::FrameError("invalid length".to_owned()));
+    }
+    if frame.meta.flag.contains(FrameFlag::CanTimeBroadcast) {
+        let can_frame = construct_broadcast_can_frame(&mut frame)?;
+        can_socket_tx.write_frame(can_frame).await?;
+        return Ok(1);
+    }
+    let mut new_id = TyCanId(0);
+    let is_obc = frame.meta.src_id == TY_CAN_OBC_ID;
+    new_id.set_src_id(src_id);
+    new_id.set_dest_id(frame.meta.dest_id);
+    new_id.set_is_csp(false);
+    new_id.set_pid(id);
+    if len <= TY_CAN_PROTOCOL_SINGLE_FRAME_MAX as u16 {
+        attach_single_frame_hdr(is_obc, &mut frame)?;
+        let new_len = frame.len();
+        let can_id: ExtendedId = new_id.into();
+        let can_frame = construct_can_frame(can_id, &frame.data()[0..new_len])?;
+        can_socket_tx.write_frame(can_frame).await?;
+        Ok(1)
+    } else {
+        let mut frame_sended = 0;
+        // attach meta
+        attach_multi_frame_hdr_and_checksum(is_obc, &mut frame)?;
+        let mut remain: i32 = frame.meta.len.into();
+        let mut offset: usize = 0;
+
+        // first packet
+        new_id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
+        let first_pkt_can_id: ExtendedId = new_id.into();
+        let can_frame = construct_can_frame(
+            first_pkt_can_id,
+            &frame.data()[0..TY_CAN_PROTOCOL_CAN_FRAME_SIZE],
+        )?;
+
+        {
+            let result = can_socket_tx.write_frame(can_frame).await;
+            if let Err(e) = result {
+                log::error!("{:?}", e);
+                can_socket_tx.write_frame(can_frame).await?;
+            }
+        }
+        frame_sended += 1;
+        remain -= TY_CAN_PROTOCOL_CAN_FRAME_SIZE as i32;
+        offset += TY_CAN_PROTOCOL_CAN_FRAME_SIZE;
+
+        // middle packet
+        new_id.set_frame_type(TyCanProtocolFrameType::MultiMiddle as u8);
+
+        while remain > 0 {
+            let this_len = if remain > TY_CAN_PROTOCOL_CAN_FRAME_SIZE as i32 {
+                TY_CAN_PROTOCOL_CAN_FRAME_SIZE as i32
+            } else {
+                remain
+            };
+            let next_can_id: ExtendedId = new_id.into();
+            let next_can_frame = construct_can_frame(
+                next_can_id,
+                &frame.data()[offset..offset + this_len as usize],
+            )?;
+
+            can_socket_tx.write_frame(next_can_frame).await?;
+
+            remain -= this_len;
+            offset += this_len as usize;
+            frame_sended += 1;
+        }
+        Ok(frame_sended)
     }
 }
 
@@ -669,7 +708,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame, self_id: u8) -> io::Result<Opt
             );
         }
     };
-    Ok(None) 
+    Ok(None)
 }
 
 #[cfg(test)]
