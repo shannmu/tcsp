@@ -1,18 +1,28 @@
 use std::time::Duration;
 
+use clap::Parser;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 mod common;
 use common::init_logger;
 
+#[derive(Debug, Parser)]
+struct Cli {
+    #[arg(required = true)]
+    device_name: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_logger(log::Level::Debug).unwrap();
+    // Get the device name from argv
+    let cli = Cli::parse();
+    let device_name = cli.device_name;
 
     // Init a serial port
     let port = Mutex::new(
-        serialport::new("/dev/ttyAMA1", 115200)
+        serialport::new(device_name.as_str(), 115200)
             .timeout(std::time::Duration::from_secs(5))
             .open()
             .unwrap(),
