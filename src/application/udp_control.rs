@@ -145,8 +145,8 @@ mod test{
         let udp = UdpControl::new(dummy.clone());
 
         // test 150 bytes separate as two parts:
-        // first pkt(128bytes): 0xbe 0x06 0x20 0x00 0x00 (with 123bytes data) 
-        // second pkt(30bytes): 0xbe 0x06 0x20 0x00 0x80 (with 25bytes data) 
+        // first pkt(128bytes): 0xbe 0x01 0x20 0x06 0x00 (with 123bytes data) 
+        // second pkt(30bytes): 0xbe 0x01 0x20 0x06 0x80 (with 25bytes data) 
         let mut frame = Frame::new(UdpControl::<()>::APPLICATION_ID);
         frame.set_len(124).unwrap(); // actually 123 bytes of data
         frame.data_mut()[0] = 0;
@@ -159,9 +159,9 @@ mod test{
         assert_eq!(dummy.data.lock().await.len(),1);
 
         // test 300 bytes separate as 3 parts:
-        // first pkt(128bytes):  0xbe 0x06 0x20 0x00 0x00 (with 123bytes data)
-        // second pkt(128bytes): 0xbe 0x06 0x20 0x00 0x00 (with 123bytes data) 
-        // last  pkt(59bytes):   0xbe 0x06 0x20 0x00 0x80 (with 54bytes data) 
+        // first pkt(128bytes):  0xbe 0x01 0x20 0x06 0x00 (with 123bytes data)
+        // second pkt(128bytes): 0xbe 0x01 0x20 0x06 0x00 (with 123bytes data) 
+        // last  pkt(59bytes):   0xbe 0x01 0x20 0x06 0x80 (with 54bytes data) 
         let mut frame = Frame::new(UdpControl::<()>::APPLICATION_ID);
         frame.set_len(124).unwrap(); // actually 123 bytes of data
         frame.data_mut()[0] = 0;
@@ -177,6 +177,5 @@ mod test{
         frame2.data_mut()[0] = 0x80;
         udp.handle(frame2, 124).await.unwrap(); 
         assert_eq!(dummy.data.lock().await.len(),3);
-
     }
 }
