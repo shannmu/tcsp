@@ -17,6 +17,7 @@ pub use reboot::Reboot;
 pub use telemetry::TeleMetry;
 pub use time_sync::TimeSync;
 pub use udp_control::UdpControl;
+pub use reset_network::ResetNetwork;
 
 #[cfg(test)]
 pub(crate) use fallback::DummyFallback;

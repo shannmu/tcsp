@@ -83,6 +83,8 @@ impl<D: DeviceAdaptor + 'static> TcspServer<D> {
                         log::error!("faild to send application response:{}", e);
                     }
                 }
+            }else{
+                log::error!("application={} not found", application_id);
             }
         }
         Ok(())

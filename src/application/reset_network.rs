@@ -1,5 +1,10 @@
 use std::{
-    error::Error, mem::size_of, net::Ipv4Addr, process::Stdio, str::FromStr
+    error::Error,
+    mem::size_of,
+    net::Ipv4Addr,
+    process::Stdio,
+    slice::{from_raw_parts, from_raw_parts_mut},
+    str::FromStr,
 };
 
 use async_trait::async_trait;
@@ -11,14 +16,28 @@ use super::{Application, Frame};
 pub struct ResetNetwork;
 
 #[repr(C)]
-struct NetworkControlHeader{
-    cmd : NetworkControlCommand,
-    status : NetworkControlStatus,
+struct NetworkControlHeader {
+    cmd_and_status: u8,
+}
+
+impl From<NetworkControlHeader> for u8 {
+    fn from(hdr: NetworkControlHeader) -> Self {
+        hdr.cmd_and_status
+    }
+}
+
+fn make_header(
+    command: NetworkControlCommand,
+    status: NetworkControlStatus,
+) -> NetworkControlHeader {
+    NetworkControlHeader {
+        cmd_and_status: (command as u8) | ((status as u8) << 6),
+    }
 }
 
 #[repr(u8)]
 #[derive(Debug)]
-enum NetworkControlCommand{
+enum NetworkControlCommand {
     Unknown = 0,
 
     List = 1,
@@ -27,7 +46,7 @@ enum NetworkControlCommand{
 
 #[repr(u8)]
 #[derive(Debug)]
-enum NetworkControlStatus{
+enum NetworkControlStatus {
     _Unknown = 0,
 
     Ok = 1,
@@ -35,16 +54,15 @@ enum NetworkControlStatus{
     UnknowCommand = 3,
 }
 
-impl From<u8> for NetworkControlCommand{
+impl From<u8> for NetworkControlCommand {
     fn from(value: u8) -> Self {
         match value {
-            0 => NetworkControlCommand::List,
-            1 => NetworkControlCommand::ResetAll,
+            1 => NetworkControlCommand::List,
+            2 => NetworkControlCommand::ResetAll,
             _ => NetworkControlCommand::Unknown,
         }
     }
 }
-
 
 #[async_trait]
 impl Application for ResetNetwork {
@@ -53,36 +71,37 @@ impl Application for ResetNetwork {
         response.set_meta_from_request(frame.meta());
 
         let cmd = NetworkControlCommand::from(frame.data()[0]);
-
-        match cmd{
+        match cmd {
             NetworkControlCommand::List => {
-                response.set_len((size_of::<NetworkControlHeader>() + size_of::<NetworkStatus>()) as u16)?;
-                response.data_mut()[0] = frame.data()[0];
-                if let Some(status) = NetworkStatus::new_from_buffer(&response.data_mut()[size_of::<NetworkControlHeader>()..size_of::<NetworkControlHeader>()+ size_of::<NetworkStatus>()]){
-                    *status = list_status().await; 
-                    response.data_mut()[1] = NetworkControlStatus::Ok as u8;
-                }else{
-                    response.data_mut()[1] = NetworkControlStatus::RunError as u8;
-                }
-                
+                response.set_len(
+                    (size_of::<NetworkControlHeader>() + size_of::<NetworkStatus>()) as u16,
+                )?;
+                response.data_mut()[size_of::<NetworkControlHeader>()
+                    ..size_of::<NetworkControlHeader>() + size_of::<NetworkStatus>()]
+                    .copy_from_slice(list_status().await.into_network_endian_buffer());
+                response.data_mut()[0] = make_header(cmd, NetworkControlStatus::Ok).into();
+                log::debug!("receive net interface list. Response:{:?}", response);
             }
             NetworkControlCommand::ResetAll => {
                 let is_ok = reset_all_network().await;
                 response.set_len(size_of::<NetworkControlHeader>() as u16)?;
-                response.data_mut()[0] = frame.data()[0];
-                if is_ok{
-                    response.data_mut()[0] = NetworkControlStatus::Ok as u8;
-                }else{
-                    response.data_mut()[1] = NetworkControlStatus::RunError as u8;
+                if is_ok {
+                    response.data_mut()[0] = make_header(cmd, NetworkControlStatus::Ok).into();
+                    log::info!("Network interface reset success.");
+                } else {
+                    response.data_mut()[0] =
+                        make_header(cmd, NetworkControlStatus::RunError).into();
+                    log::error!("Network reset failed: Execute command failed.");
                 }
             }
             NetworkControlCommand::Unknown => {
                 response.set_len(size_of::<NetworkControlHeader>() as u16)?;
-                response.data_mut()[0] = frame.data()[0];
-                response.data_mut()[1] = NetworkControlStatus::UnknowCommand as u8;
-            },
+                response.data_mut()[0] =
+                    make_header(cmd, NetworkControlStatus::UnknowCommand).into();
+                log::error!("Unknow network control command.");
+            }
         }
-            
+
         Ok(Some(response))
     }
 
@@ -108,7 +127,20 @@ bitflags! {
     }
 }
 
-async fn reset_all_network() -> bool{
+impl NetworkFlag {
+    fn as_network_nedian(&mut self) {
+        #[cfg(target_endian = "little")]
+        {
+            *self = Self::from_bits_truncate(self.bits().to_be())
+        }
+        #[cfg(target_endian = "big")]
+        {
+            *self = Self::from_bits_truncate(self.bits().to_le())
+        }
+    }
+}
+
+async fn reset_all_network() -> bool {
     let output = Command::new("netplan")
         .arg("apply")
         .stdout(Stdio::piped())
@@ -118,28 +150,26 @@ async fn reset_all_network() -> bool{
 }
 
 /// Compile time check
-const _MUST_NO_EXCEED_MTU : () = assert!(size_of::<NetworkControlHeader>() + size_of::<NetworkStatus>() < 100 );
+const _MUST_NO_EXCEED_MTU: () =
+    assert!(size_of::<NetworkControlHeader>() + size_of::<NetworkStatus>() < 100);
 
 #[repr(C)]
-#[derive(Default, Debug)]
+#[derive(Debug)]
 struct NetworkInterfaceStatus {
-    ip: [u8; 4],
+    ip: Ipv4Addr,
     state: NetworkFlag,
+    _reserve: [u8; 24],
 }
 
-impl NetworkStatus {
-    /// INVARIANT: `buf` should be a buffer to write `NetworkStatus`, and it must not less than size_of::<NetworkStatus>
-    fn new_from_buffer(buf : &[u8]) -> Option<&'static mut Self> {
-        if buf.len() < size_of::<Self>(){
-            return None;
-        }
-        let ptr = buf.as_ptr() as *const NetworkStatus as *mut NetworkStatus;
-        unsafe{
-            Some(&mut *ptr)
+impl Default for NetworkInterfaceStatus {
+    fn default() -> Self {
+        Self {
+            ip: Ipv4Addr::new(0, 0, 0, 0),
+            state: Default::default(),
+            _reserve: Default::default(),
         }
     }
 }
-
 #[repr(C)]
 #[derive(Debug, Default)]
 struct NetworkStatus {
@@ -147,7 +177,23 @@ struct NetworkStatus {
     eth1: NetworkInterfaceStatus,
 }
 
+impl NetworkStatus {
+    /// INVARIANT: `buf` should be a buffer to write `NetworkStatus`, and it must not less than size_of::<NetworkStatus>
+    fn new_from_buffer(buf: &[u8]) -> Option<&'static mut Self> {
+        if buf.len() < size_of::<Self>() {
+            return None;
+        }
+        let ptr = buf.as_ptr() as *const NetworkStatus as *mut NetworkStatus;
+        unsafe { Some(&mut *ptr) }
+    }
 
+    fn into_network_endian_buffer(mut self) -> &'static [u8] {
+        self.eth0.state.as_network_nedian();
+        self.eth1.state.as_network_nedian();
+        let ptr = &self as *const NetworkStatus as *const u8;
+        unsafe { from_raw_parts(ptr, size_of::<Self>()) }
+    }
+}
 impl From<&str> for NetworkFlag {
     fn from(value: &str) -> Self {
         match value {
@@ -189,12 +235,10 @@ async fn parse_status(interface: &'static str) -> Result<NetworkInterfaceStatus,
         let flag = extract_network_flag(&stdout);
         let ipv4 = extract_ipv4(&stdout).unwrap_or(Ipv4Addr::new(0, 0, 0, 0));
         status.state = flag;
-        status.ip = ipv4.octets();
-        println!("{}: {:?}", interface, status);
+        status.ip = ipv4;
     }
     Ok(status)
 }
-
 
 fn extract_network_flag(input: &str) -> NetworkFlag {
     if let Some(start) = input.find('<') {
@@ -224,9 +268,4 @@ fn extract_ipv4(input: &str) -> Option<Ipv4Addr> {
 
 impl ResetNetwork {
     pub(crate) const APPLICATION_ID: u8 = 5;
-}
-
-#[tokio::test]
-async fn test_tokio() {
-    println!("{:?}", list_status().await);
 }

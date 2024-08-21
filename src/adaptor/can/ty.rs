@@ -586,7 +586,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame, self_id: u8) -> io::Result<Opt
         .unwrap_or(TyCanProtocolFrameType::Unknown);
     let dest_id = ty_can_id.get_dest_id();
     let len = frame.len();
-    log::info!("receive pkt,type={:?}", frame_type);
+    log::info!("receive can pkt,type={:?}", frame_type);
     match frame_type {
         TyCanProtocolFrameType::Single => {
             if let Some(hdr) = TySingleFrameHeader::read(frame.data()) {
