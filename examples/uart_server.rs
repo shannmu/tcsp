@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use tcsp::{EchoCommand, Reboot, TcspServerBuilder, TeleMetry, TimeSync, Uart, UdpControl, ZeromqSocket};
+use tcsp::{EchoCommand, Reboot, TcspServerBuilder, TeleMetry, TimeSync, Uart, UdpBackup, ZeromqSocket};
 
 mod common;
 use common::init_logger;
@@ -25,7 +25,7 @@ async fn main() {
         .with_application(Arc::new(EchoCommand {}))
         .with_application(Arc::new(TimeSync::new(socket.clone())))
         .with_application(Arc::new(Reboot {}))
-        .with_application(Arc::new(UdpControl::new(socket)))
+        .with_application(Arc::new(UdpBackup::new(socket)))
         .build();
     server.listen().await;
 }

@@ -4,7 +4,7 @@ mod reboot;
 mod reset_network;
 mod telemetry;
 mod time_sync;
-mod udp_control;
+mod udp_backup;
 mod upload;
 
 /// The fallback is an adpter to the restrive adta or send data to the
@@ -16,7 +16,7 @@ pub use fallback::{Fallback, ZeromqSocket};
 pub use reboot::Reboot;
 pub use telemetry::TeleMetry;
 pub use time_sync::TimeSync;
-pub use udp_control::UdpControl;
+pub use udp_backup::UdpBackup;
 pub use reset_network::ResetNetwork;
 
 #[cfg(test)]

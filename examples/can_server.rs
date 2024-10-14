@@ -2,7 +2,7 @@ use std::{num::ParseIntError, sync::Arc, time::Duration};
 
 use clap::Parser;
 use tcsp::{
-    EchoCommand, Reboot, ResetNetwork, TcspServerBuilder, TeleMetry, TimeSync, TyCanProtocol, UdpControl, ZeromqSocket
+    EchoCommand, Reboot, ResetNetwork, TcspServerBuilder, TeleMetry, TimeSync, TyCanProtocol, UdpBackup, ZeromqSocket
 };
 
 fn parse_number(s: &str) -> Result<u8, ParseIntError> {
@@ -47,7 +47,7 @@ async fn main() {
         .with_application(Arc::new(EchoCommand {}))
         .with_application(Arc::new(TimeSync::new(socket.clone())))
         .with_application(Arc::new(Reboot {}))
-        .with_application(Arc::new(UdpControl::new(socket)))
+        .with_application(Arc::new(UdpBackup::new(socket)))
         .with_application(Arc::new(ResetNetwork{}))
         .build();
     server.listen().await;
