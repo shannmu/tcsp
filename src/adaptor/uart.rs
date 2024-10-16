@@ -178,7 +178,7 @@ pub struct TyUartProtocol {
 
 impl TyUartProtocol {
     pub fn from_slice_to_self(input: &[u8]) -> IResult<&[u8], TyUartProtocol> {
-        log::debug!("Starting parsing recv data stage 1");
+        log::debug!("Starting parsing recv data stage 1: input {:?}", input);
         let original_input = input;
         let (input, (header, platform_id, mut data_len, data_type, command_type, req_id)) =
             tuple((
