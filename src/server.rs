@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::mem::size_of;
 use std::{io, sync::Arc};
 
@@ -9,8 +10,7 @@ pub struct TcspServer<D>(Arc<TcspInner<D>>);
 use crate::application::Application;
 use crate::protocol::v1::frame::FrameHeader;
 use crate::protocol::Frame;
-
-const UNKNOW_APPLICATION: &str = "Unknow";
+use std::collections::HashSet;
 
 struct TcspInner<D> {
     adaptor: D,
@@ -20,8 +20,19 @@ struct TcspInner<D> {
 macro_rules! create_server_and_application_table {
     ($adaptor:ident,$applications:ident) => {{
         let mut application_table = core::array::from_fn(|_| None);
+        let mut application_ids = HashSet::new();
         for application in $applications {
             let id: usize = application.application_id().into();
+            if !application_ids.insert(id) {
+                let previous_application: &Arc<dyn Application> =
+                    application_table[id].as_ref().unwrap();
+                let name1 = previous_application.application_name();
+                let name2 = application.application_name();
+                panic!(
+                    "Duplicate application id of {} and {}, with same id {}",
+                    name1, name2, id
+                );
+            }
             application_table[id] = Some(application);
         }
         TcspServer(Arc::new(TcspInner {
