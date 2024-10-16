@@ -172,7 +172,7 @@ impl TyUartProtocol {
     pub fn from_slice_to_self(input: &[u8]) -> IResult<&[u8], TyUartProtocol> {
         log::debug!("Starting parsing recv data stage 1");
         let original_input = input;
-        let (input, (header, platform_id, data_len, data_type, command_type, req_id)) =
+        let (input, (header, platform_id, mut data_len, data_type, command_type, req_id)) =
             tuple((
                 Self::header_parser,
                 Self::platform_id_parser,
