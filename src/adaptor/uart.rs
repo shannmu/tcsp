@@ -133,6 +133,10 @@ enum TeleCommand {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum TeleMetry {
+    NormalTeleMetry1 = 0x00,
+    NormalTeleMetry2 = 0x01,
+    NormalTeleMetry3 = 0x02,
+    NormalTeleMetry4 = 0x03,
     UDPTeleMetryBackup = 0x22,
     CANTeleMetryBackup = 0x23,
 }
@@ -146,6 +150,10 @@ enum Command {
 impl From<Command> for u8 {
     fn from(val: Command) -> Self {
         match val {
+            Command::TeleMetry(TeleMetry::NormalTeleMetry1) => 0x00,
+            Command::TeleMetry(TeleMetry::NormalTeleMetry2) => 0x01,
+            Command::TeleMetry(TeleMetry::NormalTeleMetry3) => 0x02,
+            Command::TeleMetry(TeleMetry::NormalTeleMetry4) => 0x03,
             Command::TeleCommand(TeleCommand::BasicTeleCommand) => 0x10,
             Command::TeleCommand(TeleCommand::GeneralTeleCommand) => 0x11,
             Command::TeleCommand(TeleCommand::UDPTeleCommnadBackup) => 0x12,
@@ -289,6 +297,10 @@ impl TyUartProtocol {
             let res = u8::from_be_bytes(result);
 
             match res {
+                0x00 => Ok(Command::TeleMetry(TeleMetry::NormalTeleMetry1)),
+                0x01 => Ok(Command::TeleMetry(TeleMetry::NormalTeleMetry2)),
+                0x02 => Ok(Command::TeleMetry(TeleMetry::NormalTeleMetry3)),
+                0x03 => Ok(Command::TeleMetry(TeleMetry::NormalTeleMetry4)),
                 0x10 => Ok(Command::TeleCommand(TeleCommand::BasicTeleCommand)),
                 0x11 => Ok(Command::TeleCommand(TeleCommand::GeneralTeleCommand)),
                 0x12 => Ok(Command::TeleCommand(TeleCommand::UDPTeleCommnadBackup)),
