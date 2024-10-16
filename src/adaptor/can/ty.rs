@@ -23,7 +23,7 @@ use tokio::sync::Mutex;
 
 use super::slot::Slot;
 
-const RECV_BUF_SLOT_NUM: usize = 128; // 8bits for id
+const RECV_BUF_SLOT_NUM: usize = 1 << 8; // 8bits for id
 const TY_CAN_PROTOCOL_MTU: usize = 150;
 const TY_CAN_PROTOCOL_PAYLOAD_MAX_SIZE: usize =
     TY_CAN_PROTOCOL_MTU - size_of::<TyMultiFrameHeader>() - TY_CAN_PROTOCOL_CHECKSUM_SIZE;
@@ -586,7 +586,7 @@ fn recv(slot_map: &RecvBuf, frame: &CanDataFrame, self_id: u8) -> io::Result<Opt
         .unwrap_or(TyCanProtocolFrameType::Unknown);
     let dest_id = ty_can_id.get_dest_id();
     let len = frame.len();
-    log::info!("receive can pkt,type={:?}", frame_type);
+    log::info!("ty can pkt,type={:?}", frame_type);
     match frame_type {
         TyCanProtocolFrameType::Single => {
             if let Some(hdr) = TySingleFrameHeader::read(frame.data()) {
@@ -756,12 +756,15 @@ mod tests {
         assert_eq!(TY_CAN_ID_FILTER_MASK & 0x54212, 0x2a << TY_CAN_ID_OFFSET);
 
         let mut id = TyCanId(0);
-        id.set_src_id(0);
-        id.set_dest_id(0x46);
+        id.set_src_id(0x80);
+        id.set_dest_id(0x44);
         id.set_frame_type(TyCanProtocolFrameType::Single as u8);
         id.set_is_csp(false);
-        id.set_pid(0x0);
-        println!("{:2x}", id.0);
+        id.set_pid(0xB9);
+        let id = TyCanId(0x0008844D);
+        println!("{:?}", id.get_frame_type());
+        println!("{:?}", id.get_is_csp());
+        println!("{:?}", id.get_dest_id());
     }
 
     #[test]
@@ -826,6 +829,34 @@ mod tests {
         assert_eq!(frame.meta.src_id, 0);
         assert_eq!(frame.meta.dest_id, 0x2a);
         assert_eq!(&frame.data()[..frame.len()], &data[4..38]);
+
+        // test 100 bytes request
+        let mut id = TyCanId(0);
+        id.set_src_id(0);
+        id.set_dest_id(0x44);
+        id.set_frame_type(TyCanProtocolFrameType::MultiFirst as u8);
+        id.set_is_csp(false);
+        id.set_pid(0xBF);
+        let first_can_id = ExtendedId::new(id.0).unwrap();
+        id.set_frame_type(TyCanProtocolFrameType::MultiMiddle as u8);
+        let rest_can_id = ExtendedId::new(id.0).unwrap();
+        let data = [0x0, 0x80, 0xbe, 0x3, 0x20, 0x6, 0x65, 0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x12,
+            0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x2f, 0x68, 0x6f, 0x6d, 0x65, 0x2f, 0x75, 0x73, 0x65, 0x72,
+            0x2f, 0x74, 0x65, 0x73, 0x74, 0x2e, 0x73, 0x68, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa0];
+        let frame = CanDataFrame::new(first_can_id, &data[0..8]).unwrap();
+        assert!(super::recv(&slot_map, &frame, 0x44).unwrap().is_none());
+        for chunk in data[8..].chunks(8) {
+            let frame = CanDataFrame::new(rest_can_id, chunk).unwrap();
+            if let Some(result) = super::recv(&slot_map, &frame, 0x44).unwrap(){
+                println!("{:?}",result);
+            }
+        }
+       
     }
 
     #[test]
