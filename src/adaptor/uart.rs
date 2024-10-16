@@ -182,7 +182,7 @@ impl TyUartProtocol {
                 Self::req_id_parser,
             ))(input)?;
         log::debug!("Starting parsing recv data stage 2");
-        let (input, data) = Self::data_parser(input, data_len)?;
+        let (input, mut data) = Self::data_parser(input, data_len)?;
         log::debug!("Starting parsing recv data stage 3");
         let (input, checksum) = Self::checksum_parser(input)?;
 
