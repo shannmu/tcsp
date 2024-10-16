@@ -11,6 +11,9 @@ use tokio::sync::Mutex;
 
 use super::{DeviceAdaptor, Frame, FrameFlag, FrameMeta};
 
+#[cfg(feature = "unstable_add_frameheader")]
+use crate::protocol::v1::frame::FrameHeader;
+
 const CUSTOM_ALG: crc::Algorithm<u8> = crc::Algorithm {
     width: 8,
     poly: 0x80,
@@ -234,7 +237,7 @@ impl TyUartProtocol {
             let mut result = [0u8; 2];
             result.copy_from_slice(input);
             let res = u16::from_be_bytes(result);
-            
+
             match res {
                 0xEB90 => Ok(Header::Header),
                 _ => Err(ErrorKind::Tag),
@@ -268,7 +271,7 @@ impl TyUartProtocol {
             let mut result = [0u8; 1];
             result.copy_from_slice(input);
             let res = u8::from_be_bytes(result);
-            
+
             match res {
                 0x35 => Ok(CommandType::TeleCommand),
                 0x05 => Ok(CommandType::TeleMetry),
@@ -284,7 +287,7 @@ impl TyUartProtocol {
             let mut result = [0u8; 1];
             result.copy_from_slice(input);
             let res = u8::from_be_bytes(result);
-            
+
             match res {
                 0x10 => Ok(Command::TeleCommand(TeleCommand::BasicTeleCommand)),
                 0x11 => Ok(Command::TeleCommand(TeleCommand::GeneralTeleCommand)),
