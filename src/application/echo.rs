@@ -18,6 +18,10 @@ impl Application for EchoCommand {
     fn application_id(&self) -> u8 {
         Self::APPLICATION_ID
     }
+
+    fn application_name(&self) -> &'static str{
+        "Echo"
+    }
 }
 
 impl EchoCommand {

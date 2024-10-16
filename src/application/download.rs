@@ -27,6 +27,10 @@ impl<F: Fallback> Application for DownloadCommand<F> {
     fn application_id(&self) -> u8 {
         Self::APPLICATION_ID
     }
+
+    fn application_name(&self) -> &'static str{
+        "Download files"
+    }
 }
 
 impl<F: Fallback> DownloadCommand<F> {

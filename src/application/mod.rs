@@ -32,5 +32,7 @@ pub trait Application: Send + Sync {
 
     fn application_id(&self) -> u8;
 
+    fn application_name(&self) -> &'static str;
+
     async fn init(&self) {}
 }

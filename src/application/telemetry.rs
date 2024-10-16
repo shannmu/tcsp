@@ -29,6 +29,10 @@ impl<F: Fallback> Application for TeleMetry<F> {
     fn application_id(&self) -> u8 {
         Self::APPLICATION_ID
     }
+
+    fn application_name(&self) -> &'static str{
+        "Telemetry"
+    }
 }
 
 impl<F: Fallback> TeleMetry<F> {

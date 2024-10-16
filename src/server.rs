@@ -10,6 +10,8 @@ use crate::application::Application;
 use crate::protocol::v1::frame::FrameHeader;
 use crate::protocol::Frame;
 
+const UNKNOW_APPLICATION: &str = "Unknow";
+
 struct TcspInner<D> {
     adaptor: D,
     applications: [Option<Arc<dyn Application>>; MAX_APPLICATION_HANDLER],
@@ -69,12 +71,12 @@ impl<D: DeviceAdaptor + 'static> TcspServer<D> {
     async fn handle(&self) -> Result<(), io::Error> {
         if let Ok(bus_frame) = self.0.adaptor.recv().await {
             let frame = Frame::try_from(bus_frame)?;
-            log::info!("receive application={}", frame.application());
             let server = Arc::<TcspInner<D>>::clone(&self.0);
             let mtu = (server.adaptor.mtu(frame.meta().flag) - size_of::<FrameHeader>()) as u16;
             let application_id = frame.application();
 
             if let Some(Some(application)) = server.applications.get(application_id as usize) {
+                log::info!("receive application={}", application.application_name());
                 let response = application.handle(frame, mtu).await?;
                 log::debug!("response:{:?}", response);
                 if let Some(response) = response {
@@ -83,7 +85,7 @@ impl<D: DeviceAdaptor + 'static> TcspServer<D> {
                         log::error!("faild to send application response:{}", e);
                     }
                 }
-            }else{
+            } else {
                 log::error!("application={} not found", application_id);
             }
         }

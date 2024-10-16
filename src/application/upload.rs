@@ -100,6 +100,10 @@ impl<F: Fallback> Application for UploadCommand<F> {
     fn application_id(&self) -> u8 {
         Self::APPLICATION_ID
     }
+
+    fn application_name(&self) -> &'static str{
+        "Upload files"
+    }
 }
 
 impl<F: Fallback> UploadCommand<F> {

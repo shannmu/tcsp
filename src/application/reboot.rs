@@ -17,6 +17,10 @@ impl Application for Reboot {
     fn application_id(&self) -> u8 {
         Self::APPLICATION_ID
     }
+
+    fn application_name(&self) -> &'static str{
+        "Reboot"
+    }
 }
 
 impl Reboot {

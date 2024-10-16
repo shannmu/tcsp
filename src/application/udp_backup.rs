@@ -6,8 +6,7 @@ use tokio::time::timeout;
 use super::{Application, Fallback, Frame};
 
 const MAX_UDP_COMMAND_LENGTH: usize = 124;
-const MAX_UDP_BUFFER_LENGTH: usize = 144;
-const UDP_CUSTOM_CODE: [u8; 4] = [0, 0, 0xea, 0x62];
+// const UDP_CUSTOM_CODE: [u8; 4] = [0, 0, 0xea, 0x62];
 
 pub struct UdpBackup<F> {
     fallback: F,
@@ -16,10 +15,15 @@ pub struct UdpBackup<F> {
 #[async_trait]
 impl<F: Fallback> Application for UdpBackup<F> {
     async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        let mut udp_commnad = Vec::with_capacity(MAX_UDP_BUFFER_LENGTH);
-        let clone_command_length = frame.data().len().max(MAX_UDP_COMMAND_LENGTH);
-        udp_commnad.extend(&UDP_CUSTOM_CODE);
-        udp_commnad.extend(&frame.data()[..clone_command_length]);
+        if frame.data().len() > MAX_UDP_COMMAND_LENGTH {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Length should be less than: {:?}", MAX_UDP_COMMAND_LENGTH),
+            ));
+        }
+        log::debug!("receive udp backup:{:?}",frame);
+        let mut udp_commnad = vec![0; MAX_UDP_COMMAND_LENGTH];
+        udp_commnad[0..frame.data().len()].copy_from_slice(frame.data());
 
         let send_future = self.fallback.fallback(udp_commnad);
         // the custom udp command does not return a result.
@@ -29,6 +33,10 @@ impl<F: Fallback> Application for UdpBackup<F> {
 
     fn application_id(&self) -> u8 {
         Self::APPLICATION_ID
+    }
+
+    fn application_name(&self) -> &'static str{
+        "UDP command over tcsp"
     }
 }
 

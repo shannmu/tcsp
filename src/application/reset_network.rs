@@ -109,6 +109,10 @@ impl Application for ResetNetwork {
         Self::APPLICATION_ID
     }
 
+    fn application_name(&self) -> &'static str{
+        "Reset Network"
+    }
+
     async fn init(&self) {}
 }
 bitflags! {

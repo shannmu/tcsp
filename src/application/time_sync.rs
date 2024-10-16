@@ -14,7 +14,6 @@ pub struct TimeSync<F> {
 #[async_trait]
 impl<F: Fallback> Application for TimeSync<F> {
     async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        // log::info!("{:?}", frame.data());
         let time_slice: [u8; 4] = frame.data()[..4].try_into().map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -22,10 +21,10 @@ impl<F: Fallback> Application for TimeSync<F> {
             )
         })?;
         let future_to_wait = self.fallback.fallback(vec![
-            0x00,
-            0x00,
-            0xea,
-            0x61,
+            // 0x00,
+            // 0x00,
+            // 0xea,
+            // 0x61,
             time_slice[0],
             time_slice[1],
             time_slice[2],
@@ -48,6 +47,10 @@ impl<F: Fallback> Application for TimeSync<F> {
 
     fn application_id(&self) -> u8 {
         Self::APPLICATION_ID
+    }
+
+    fn application_name(&self) -> &'static str{
+        "Time synchronize"
     }
 }
 
