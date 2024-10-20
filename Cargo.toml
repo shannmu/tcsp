@@ -24,7 +24,7 @@ zeromq = "0.4.0"
 
 [features]
 default=[]
-unstable_add_frameheader=[]
+unstable_crc32=[]
 libudev=["serialport/default"]
 netlink_can_error_detection=[]
 d2000=["netlink_can_error_detection"]

@@ -11,8 +11,11 @@ use tokio::sync::Mutex;
 
 use super::{DeviceAdaptor, Frame, FrameFlag, FrameMeta};
 
-#[cfg(feature = "unstable_add_frameheader")]
-use crate::protocol::v1::frame::FrameHeader;
+const MAGIC_HEADER: u16 = 0xEB90;
+const MAGIC_HEADER_BYTES: [u8; 2] = MAGIC_HEADER.to_be_bytes();
+
+const DATA_TYPE_REQUEST: u8 = 0x05;
+const DATA_TYPE_RESPONSE: u8 = 0x35;
 
 const CUSTOM_ALG: crc::Algorithm<u8> = crc::Algorithm {
     width: 8,
@@ -28,16 +31,18 @@ const CUSTOM_ALG: crc::Algorithm<u8> = crc::Algorithm {
 #[derive(Debug)]
 pub struct Uart {
     file: Mutex<Box<dyn SerialPort>>,
+    device_id: u8,
 }
 
 impl Uart {
-    pub async fn new(device_name: &str, baud_rate: u32) -> Self {
+    pub async fn new(device_name: &str, baud_rate: u32, device_id: u8) -> Self {
         let port = serialport::new(device_name, baud_rate)
             .timeout(Duration::from_secs(5))
             .open()
             .unwrap();
         Self {
             file: Mutex::new(port),
+            device_id,
         }
     }
 }
@@ -45,12 +50,13 @@ impl Uart {
 #[async_trait]
 impl DeviceAdaptor for Uart {
     async fn send(&self, buf: super::Frame) -> Result<(), super::DeviceAdaptorError> {
+        // TODO: send函数需要做改动 => 文件下发需要多个包 => 主要看一下download.rs是如何实现下发的，对多个包的处理应该在哪
         let mut buf = buf.clone();
 
         buf.expand_head(8)?;
         buf.expand_tail(1)?;
         let meta_len = buf.meta.len;
-        let meta_data_type = buf.meta.data_type;
+
         let meta_command_type = buf.meta.command_type;
         let meta_req_id = buf.meta.id;
 
@@ -58,11 +64,11 @@ impl DeviceAdaptor for Uart {
         let crc = crc::Crc::<u8>::new(&CUSTOM_ALG);
         let mut hasher = crc.digest();
 
-        data[0] = 0xEB;
-        data[1] = 0x90;
-        data[2] = 0x01;
+        data[0] = MAGIC_HEADER_BYTES[0];
+        data[1] = MAGIC_HEADER_BYTES[1];
+        data[2] = self.device_id;
         data[3..5].copy_from_slice(&(meta_len - 6).to_be_bytes());
-        data[5] = meta_data_type;
+        data[5] = DATA_TYPE_RESPONSE;
         data[6] = meta_command_type;
         data[7] = meta_req_id;
 
@@ -74,6 +80,7 @@ impl DeviceAdaptor for Uart {
     }
 
     async fn recv(&self) -> Result<super::Frame, super::DeviceAdaptorError> {
+        // TODO: recv函数需要做改动 => 文件上注需要多个包 => 主要看一下upload.rs是如何实现上注的，对多个包的处理应该在哪
         // read the data from the uart device
         let mut buf = [0u8; 150];
         let n = self
@@ -128,15 +135,11 @@ enum TeleCommand {
     BasicTeleCommand = 0x10,
     GeneralTeleCommand = 0x11,
     UDPTeleCommnadBackup = 0x12,
-    UARTQuickTeleCommand = 0x20,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum TeleMetry {
-    NormalTeleMetry1 = 0x00,
-    NormalTeleMetry2 = 0x01,
-    NormalTeleMetry3 = 0x02,
-    NormalTeleMetry4 = 0x03,
+    UARTQuickTeleMetry = 0x20,
     UDPTeleMetryBackup = 0x22,
     CANTeleMetryBackup = 0x23,
 }
@@ -150,14 +153,10 @@ enum Command {
 impl From<Command> for u8 {
     fn from(val: Command) -> Self {
         match val {
-            Command::TeleMetry(TeleMetry::NormalTeleMetry1) => 0x00,
-            Command::TeleMetry(TeleMetry::NormalTeleMetry2) => 0x01,
-            Command::TeleMetry(TeleMetry::NormalTeleMetry3) => 0x02,
-            Command::TeleMetry(TeleMetry::NormalTeleMetry4) => 0x03,
             Command::TeleCommand(TeleCommand::BasicTeleCommand) => 0x10,
             Command::TeleCommand(TeleCommand::GeneralTeleCommand) => 0x11,
             Command::TeleCommand(TeleCommand::UDPTeleCommnadBackup) => 0x12,
-            Command::TeleCommand(TeleCommand::UARTQuickTeleCommand) => 0x20,
+            Command::TeleMetry(TeleMetry::UARTQuickTeleMetry) => 0x20,
             Command::TeleMetry(TeleMetry::UDPTeleMetryBackup) => 0x22,
             Command::TeleMetry(TeleMetry::CANTeleMetryBackup) => 0x23,
         }
@@ -180,7 +179,7 @@ impl TyUartProtocol {
     pub fn from_slice_to_self(input: &[u8]) -> IResult<&[u8], TyUartProtocol> {
         log::debug!("Starting parsing recv data stage 1: input {:?}", input);
         let original_input = input;
-        let (input, (header, platform_id, mut data_len, data_type, command_type, req_id)) =
+        let (input, (header, platform_id, data_len, data_type, command_type, req_id)) =
             tuple((
                 Self::header_parser,
                 Self::platform_id_parser,
@@ -189,12 +188,13 @@ impl TyUartProtocol {
                 Self::command_type_parser,
                 Self::req_id_parser,
             ))(input)?;
-        log::debug!("Starting parsing recv data stage 2");
-        let (input, mut data) = Self::data_parser(input, data_len)?;
-        log::debug!("Starting parsing recv data stage 3");
+
+        let (input, data) = Self::data_parser(input, data_len)?;
+
         let (input, checksum) = Self::checksum_parser(input)?;
 
         if !input.is_empty() {
+            log::error!("recv data out of range");
             return Err(nom::Err::Error(nom::error::Error::new(
                 input,
                 nom::error::ErrorKind::Verify,
@@ -206,23 +206,17 @@ impl TyUartProtocol {
 
         let crc_data = &original_input[3..original_input.len() - 1];
         hasher.update(crc_data);
-        // if hasher.finalize() != checksum {
-        //     return Err(nom::Err::Error(nom::error::Error::new(
-        //         input,
-        //         nom::error::ErrorKind::Verify,
-        //     )));
-        // }
 
-        #[cfg(feature = "unstable_add_frameheader")]
+        #[cfg(feature = "unstable_crc32")]
         {
-            let raw_header = vec![0x00u8, 0x00u8];
-            let header = &mut FrameHeader::try_from(raw_header.as_slice()).unwrap();
-
-            header.application = 0x00;
-            header.version = 0x20;
-            data.extend(&raw_header);
-            data_len += size_of::<FrameHeader>() as u16;
+            if hasher.finalize() != checksum {
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    input,
+                    nom::error::ErrorKind::Verify,
+                )));
+            }
         }
+
         log::debug!("recv data construct ok");
         Ok((
             input,
@@ -283,8 +277,11 @@ impl TyUartProtocol {
             match res {
                 0x35 => Ok(CommandType::TeleCommand),
                 0x05 => Ok(CommandType::TeleMetry),
-                // TODO: change the ErrorKind
-                _ => Err(ErrorKind::Tag),
+                _ => {
+                    log::error!("data_type_parser error");
+                    // TODO: change the ErrorKind
+                    Err(ErrorKind::Tag)
+                }
             }
         })(input)
     }
@@ -297,18 +294,17 @@ impl TyUartProtocol {
             let res = u8::from_be_bytes(result);
 
             match res {
-                0x00 => Ok(Command::TeleMetry(TeleMetry::NormalTeleMetry1)),
-                0x01 => Ok(Command::TeleMetry(TeleMetry::NormalTeleMetry2)),
-                0x02 => Ok(Command::TeleMetry(TeleMetry::NormalTeleMetry3)),
-                0x03 => Ok(Command::TeleMetry(TeleMetry::NormalTeleMetry4)),
                 0x10 => Ok(Command::TeleCommand(TeleCommand::BasicTeleCommand)),
                 0x11 => Ok(Command::TeleCommand(TeleCommand::GeneralTeleCommand)),
                 0x12 => Ok(Command::TeleCommand(TeleCommand::UDPTeleCommnadBackup)),
-                0x20 => Ok(Command::TeleCommand(TeleCommand::UARTQuickTeleCommand)),
+                0x20 => Ok(Command::TeleMetry(TeleMetry::UARTQuickTeleMetry)),
                 0x22 => Ok(Command::TeleMetry(TeleMetry::UDPTeleMetryBackup)),
                 0x23 => Ok(Command::TeleMetry(TeleMetry::CANTeleMetryBackup)),
-                // TODO: change the ErrorKind
-                _ => Err(ErrorKind::Tag),
+                _ => {
+                    log::error!("command_type_parser error");
+                    // TODO: change the ErrorKind
+                    Err(ErrorKind::Tag)
+                }
             }
         })(input)
     }
@@ -391,7 +387,7 @@ fn tyuart_from_self_to_slice_test() {}
 #[ignore]
 async fn adaptor_uart_recv() {
     println!("into recv");
-    let uart = Uart::new("/dev/ttyAMA3", 9600).await;
+    let uart = Uart::new("/dev/ttyAMA3", 9600, 0x84).await;
     let frame = uart.recv().await.unwrap();
     println!("{}", frame.meta.len);
     assert_eq!(frame.meta.len, 0x0005);
@@ -408,7 +404,7 @@ async fn adaptor_uart_recv() {
 #[tokio::test]
 #[ignore]
 async fn adaptor_uart_send() {
-    let uart = Uart::new("/dev/ttyAMA2", 9600).await;
+    let uart = Uart::new("/dev/ttyAMA2", 9600, 0x84).await;
     let frame_meta = FrameMeta {
         data_type: 0x35,
         command_type: 0x10,
