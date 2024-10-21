@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{borrow::Borrow, collections::HashMap, time::Duration};
 
 use async_trait::async_trait;
 use tokio::{sync::Mutex, time::timeout};
@@ -9,7 +9,7 @@ use super::{Application, Fallback, Frame};
 pub struct UploadCommand<F> {
     fallback: F,
     state: Mutex<Box<UploadState>>,
-    buffer: Vec<u8>,
+    buffer: Mutex<HashMap<u16, Vec<u8>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -21,9 +21,6 @@ enum UploadState {
 
     // Uploading(file_mode, file_name)
     Uploading((u8, String)),
-
-    // UploadDone(file_descriptor)
-    UploadDone((u8, String)),
 }
 
 #[async_trait]
@@ -40,8 +37,9 @@ impl<F: Fallback> Application for UploadCommand<F> {
             }
 
             UploadState::UploadWaiting(file_mode) => {
-                let data = frame.data();
-                if *file_mode != data[0] {
+                let data = &frame.data()[256..]; // 0th package reserve 256 bytes for file metadata
+                let _file_mode = frame.meta().id; // Id means file_mode here
+                if *file_mode != _file_mode {
                     log::error!("data type mismatch in UploadWaiting");
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -49,24 +47,18 @@ impl<F: Fallback> Application for UploadCommand<F> {
                     ));
                 }
 
-                let data_frame_id = u16::from_be_bytes([data[1], data[2]]);
-                let data_frame_sum = u16::from_be_bytes([data[3], data[4]]);
-                if data_frame_id != 0 {
-                    log::error!("data frame id not match in UploadWaiting");
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "data frame id not match",
-                    ));
-                }
+                // Convert data to a file path string
+                let file_path = String::from_utf8(data.to_vec()).expect("Invalid file path");
 
-                let file_name = String::from_utf8(data[5..].to_vec()).unwrap();
                 let response = Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xAA])?;
-                *state = UploadState::Uploading((*file_mode, file_name));
+                *state = UploadState::Uploading((*file_mode, file_path));
                 Ok(Some(response))
             }
-            UploadState::Uploading((file_mode, file_name)) => {
+
+            UploadState::Uploading((file_mode, file_path)) => {
                 let data = frame.data();
-                if *file_mode != data[0] {
+                let _file_mode = frame.meta().id; // Id means file_mode here
+                if *file_mode != _file_mode {
                     log::error!("data type mismatch in Uploading");
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -76,35 +68,23 @@ impl<F: Fallback> Application for UploadCommand<F> {
 
                 let data_frame_id = u16::from_be_bytes([data[1], data[2]]);
                 let data_frame_sum = u16::from_be_bytes([data[3], data[4]]);
-                if data_frame_id != 0 {
-                    log::error!("data frame id not match in Uploading");
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "data frame id not match",
-                    ));
-                }
 
-                // TODO: Handle data with zeromq
-                // - data[5..] is the data content
-                // - handle response if error occurs
-                let _relpy = self.fallback.fallback(data[5..].to_vec());
-                let _reply = timeout(Duration::from_millis(100), _relpy).await??;
+                // Insert data into buffer
+                self.buffer
+                    .lock()
+                    .await
+                    .insert(data_frame_id, data[5..].to_vec());
 
                 let response = Frame::new_from_slice(
                     Self::APPLICATION_ID,
                     &[*file_mode, data[1], data[2], 0xAA],
                 )?;
 
-                if data_frame_sum != data_frame_id {
-                    *state = UploadState::Uploading((*file_mode, file_name.to_owned()));
+                if data_frame_sum != self.buffer.lock().await.len() as u16 {
+                    *state = UploadState::Uploading((*file_mode, file_path.to_owned()));
                 } else {
-                    *state = UploadState::UploadDone((*file_mode, file_name.to_owned()));
+                    *state = UploadState::UploadStart;
                 }
-                Ok(Some(response))
-            }
-            UploadState::UploadDone((file_mode, _file_name)) => {
-                let response = Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xAA])?;
-                *state = UploadState::UploadStart;
                 Ok(Some(response))
             }
         }
@@ -126,7 +106,7 @@ impl<F: Fallback> UploadCommand<F> {
         Self {
             fallback,
             state: Mutex::new(Box::new(UploadState::UploadStart)),
-            buffer: Vec::new(),
+            buffer: Mutex::new(HashMap::new()),
         }
     }
 
