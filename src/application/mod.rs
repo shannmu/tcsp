@@ -11,13 +11,15 @@ mod upload;
 mod fallback;
 
 use async_trait::async_trait;
+pub use download::DownloadCommand;
 pub use echo::EchoCommand;
 pub use fallback::{Fallback, ZeromqSocket};
 pub use reboot::Reboot;
+pub use reset_network::ResetNetwork;
 pub use telemetry::TeleMetry;
 pub use time_sync::TimeSync;
 pub use udp_backup::UdpBackup;
-pub use reset_network::ResetNetwork;
+pub use upload::UploadCommand;
 
 #[cfg(test)]
 pub(crate) use fallback::DummyFallback;

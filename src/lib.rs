@@ -55,7 +55,7 @@ mod utils;
 
 pub use adaptor::{DeviceAdaptor,TyCanProtocol,Uart};
 pub use server::TcspServerBuilder;
-pub use application::{EchoCommand, Reboot, TeleMetry, TimeSync,ZeromqSocket,UdpBackup,ResetNetwork};
+pub use application::{EchoCommand, Reboot, TeleMetry, TimeSync,ZeromqSocket,UdpBackup,ResetNetwork, UploadCommand,DownloadCommand};
 
 
 
