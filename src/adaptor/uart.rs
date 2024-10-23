@@ -82,15 +82,26 @@ impl DeviceAdaptor for Uart {
     async fn recv(&self) -> Result<super::Frame, super::DeviceAdaptorError> {
         // TODO: recv函数需要做改动 => 文件上注需要多个包 => 主要看一下upload.rs是如何实现上注的，对多个包的处理应该在哪
         // read the data from the uart device
-        let mut buf = [0u8; 150];
-        let n = self
-            .file
+        let mut header_buf = [0u8; 5];
+        self.file.lock().await.read_exact(&mut header_buf)?;
+
+        let data_len = u16::from_be_bytes([header_buf[3], header_buf[4]]);
+        let mut buf = vec![0u8; data_len as usize];
+        self.file
             .lock()
             .await
-            .read(&mut buf)
+            .read_exact(&mut buf)
             .map_err(|_| super::DeviceAdaptorError::Empty)?;
-        // return the data
-        let ty_uart = TyUartProtocol::from_slice_to_self(&buf[0..n])
+
+        let mut crc_buf = [0u8; 1];
+        self.file.lock().await.read_exact(&mut crc_buf)?;
+
+        let mut data = vec![];
+        data.extend(&header_buf);
+        data.extend(&buf);
+        data.extend(&crc_buf);
+
+        let ty_uart = TyUartProtocol::from_slice_to_self(&data)
             .map_err(|_| super::DeviceAdaptorError::FrameError("recv data error".to_string()))?
             .1;
 
