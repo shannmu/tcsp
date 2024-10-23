@@ -80,7 +80,7 @@ impl DeviceAdaptor for Uart {
     }
 
     async fn recv(&self) -> Result<super::Frame, super::DeviceAdaptorError> {
-        // TODO: recv函数需要做改动 => 文件上注需要多个包 => 主要看一下upload.rs是如何实现上注的，对多个包的处理应该在哪
+        // NOTE: 根据 upload和download任务的metadata, 填充payload的前两个字节
         // read the data from the uart device
         let mut header_buf = [0u8; 5];
         self.file.lock().await.read_exact(&mut header_buf)?;
@@ -101,9 +101,36 @@ impl DeviceAdaptor for Uart {
         data.extend(&buf);
         data.extend(&crc_buf);
 
-        let ty_uart = TyUartProtocol::from_slice_to_self(&data)
+        #[allow(unused_mut)]
+        let mut ty_uart = TyUartProtocol::from_slice_to_self(&data)
             .map_err(|_| super::DeviceAdaptorError::FrameError("recv data error".to_string()))?
             .1;
+
+        #[cfg(feature = "unstable_upload_and_download")]
+        {
+            if let Command::TeleCommand(TeleCommand::UploadRequestCommand) = ty_uart.command_type {
+                let mut data = ty_uart.data.clone();
+                // Preappend the data with `0x20, 0x04`
+                data.insert(0, 0x20);
+                data.insert(1, 0x04);
+                ty_uart.data = data;
+            } else if let Command::TeleCommand(TeleCommand::UploadDataCommand) =
+                ty_uart.command_type
+            {
+                let mut data = ty_uart.data.clone();
+                // Preappend the data with `0x20, 0x04`
+                data.insert(0, 0x20);
+                data.insert(1, 0x04);
+                ty_uart.data = data;
+            } else if let Command::TeleCommand(TeleCommand::DownloadCommand) = ty_uart.command_type
+            {
+                let mut data = ty_uart.data.clone();
+                // Preappend the data with `0x20, 0x05`
+                data.insert(0, 0x20);
+                data.insert(1, 0x05);
+                ty_uart.data = data;
+            }
+        }
 
         let framemeta = FrameMeta {
             len: ty_uart.data_len,
@@ -129,7 +156,7 @@ impl DeviceAdaptor for Uart {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum CommandType {
+enum DataType {
     TeleCommand = 0x35,
     TeleMetry = 0x05,
 }
@@ -146,6 +173,9 @@ enum TeleCommand {
     BasicTeleCommand = 0x10,
     GeneralTeleCommand = 0x11,
     UDPTeleCommnadBackup = 0x12,
+    UploadRequestCommand = 0xA0,
+    UploadDataCommand = 0xA1,
+    DownloadCommand = 0xC0,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -167,6 +197,9 @@ impl From<Command> for u8 {
             Command::TeleCommand(TeleCommand::BasicTeleCommand) => 0x10,
             Command::TeleCommand(TeleCommand::GeneralTeleCommand) => 0x11,
             Command::TeleCommand(TeleCommand::UDPTeleCommnadBackup) => 0x12,
+            Command::TeleCommand(TeleCommand::UploadRequestCommand) => 0xA0,
+            Command::TeleCommand(TeleCommand::UploadDataCommand) => 0xA1,
+            Command::TeleCommand(TeleCommand::DownloadCommand) => 0xC0,
             Command::TeleMetry(TeleMetry::UARTQuickTeleMetry) => 0x20,
             Command::TeleMetry(TeleMetry::UDPTeleMetryBackup) => 0x22,
             Command::TeleMetry(TeleMetry::CANTeleMetryBackup) => 0x23,
@@ -179,7 +212,7 @@ pub struct TyUartProtocol {
     header: Header,
     platform_id: u8,
     data_len: u16,
-    data_type: CommandType,
+    data_type: DataType,
     command_type: Command,
     req_id: u8,
     data: Vec<u8>,
@@ -278,7 +311,7 @@ impl TyUartProtocol {
         })(input)
     }
 
-    fn data_type_parser(input: &[u8]) -> IResult<&[u8], CommandType> {
+    fn data_type_parser(input: &[u8]) -> IResult<&[u8], DataType> {
         log::debug!("Starting data_type_parser");
         map_res(take(1u64), |input: &[u8]| {
             let mut result = [0u8; 1];
@@ -286,8 +319,8 @@ impl TyUartProtocol {
             let res = u8::from_be_bytes(result);
 
             match res {
-                0x35 => Ok(CommandType::TeleCommand),
-                0x05 => Ok(CommandType::TeleMetry),
+                0x35 => Ok(DataType::TeleCommand),
+                0x05 => Ok(DataType::TeleMetry),
                 _ => {
                     log::error!("data_type_parser error");
                     // TODO: change the ErrorKind
@@ -308,6 +341,9 @@ impl TyUartProtocol {
                 0x10 => Ok(Command::TeleCommand(TeleCommand::BasicTeleCommand)),
                 0x11 => Ok(Command::TeleCommand(TeleCommand::GeneralTeleCommand)),
                 0x12 => Ok(Command::TeleCommand(TeleCommand::UDPTeleCommnadBackup)),
+                0xA0 => Ok(Command::TeleCommand(TeleCommand::UploadRequestCommand)),
+                0xA1 => Ok(Command::TeleCommand(TeleCommand::UploadDataCommand)),
+                0xC0 => Ok(Command::TeleCommand(TeleCommand::DownloadCommand)),
                 0x20 => Ok(Command::TeleMetry(TeleMetry::UARTQuickTeleMetry)),
                 0x22 => Ok(Command::TeleMetry(TeleMetry::UDPTeleMetryBackup)),
                 0x23 => Ok(Command::TeleMetry(TeleMetry::CANTeleMetryBackup)),
@@ -380,7 +416,7 @@ pub fn tyuart_from_slice_to_self_test() {
                 header: Header::Header,
                 platform_id: 0x01,
                 data_len: 0x0008,
-                data_type: CommandType::TeleCommand,
+                data_type: DataType::TeleCommand,
                 command_type: Command::TeleCommand(TeleCommand::BasicTeleCommand),
                 req_id: 0x01,
                 data: vec![0x02, 0x03, 0x04, 0x05, 0x06],
