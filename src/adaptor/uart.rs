@@ -114,6 +114,7 @@ impl DeviceAdaptor for Uart {
                 data.insert(0, 0x20);
                 data.insert(1, 0x04);
                 ty_uart.data = data;
+                ty_uart.data_len += 2;
             } else if let Command::TeleCommand(TeleCommand::UploadDataCommand) =
                 ty_uart.command_type
             {
@@ -122,6 +123,7 @@ impl DeviceAdaptor for Uart {
                 data.insert(0, 0x20);
                 data.insert(1, 0x04);
                 ty_uart.data = data;
+                ty_uart.data_len += 2;
             } else if let Command::TeleCommand(TeleCommand::DownloadCommand) = ty_uart.command_type
             {
                 let mut data = ty_uart.data.clone();
@@ -129,6 +131,7 @@ impl DeviceAdaptor for Uart {
                 data.insert(0, 0x20);
                 data.insert(1, 0x05);
                 ty_uart.data = data;
+                ty_uart.data_len += 2;
             }
         }
 

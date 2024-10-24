@@ -1,7 +1,7 @@
 use std::{borrow::Borrow, collections::HashMap, time::Duration};
 
 use async_trait::async_trait;
-use tokio::{sync::Mutex, time::timeout};
+use tokio::{io::AsyncWriteExt, sync::Mutex, time::timeout};
 
 use super::{Application, Fallback, Frame};
 
@@ -83,6 +83,30 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 if data_frame_sum != self.buffer.lock().await.len() as u16 {
                     *state = UploadState::Uploading((*file_mode, file_path.to_owned()));
                 } else {
+                    log::info!("Saving file, file_path:{}", file_path);
+
+                    // Step 1. open or create the file
+                    let file = tokio::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .open(file_path)
+                        .await?;
+
+                    // Step 2. write the file
+                    let mut file = tokio::io::BufWriter::new(file);
+                    for i in 0..data_frame_sum {
+                        let data = self.buffer.lock().await;
+                        let data = data.get(&i).expect("Invalid frame id");
+                        file.write_all(data).await?;
+                    }
+                    file.flush().await?;
+
+                    // Step 3. close the file
+                    drop(file);
+
+                    // Step 4. clear the buffer
+                    self.buffer.lock().await.clear();
+
                     *state = UploadState::UploadStart;
                 }
                 Ok(Some(response))
