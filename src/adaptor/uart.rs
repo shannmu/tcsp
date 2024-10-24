@@ -70,6 +70,8 @@ impl DeviceAdaptor for Uart {
         let checksum = checksum(&data[3..data.len() - 1]);
         data[data.len() - 1] = checksum;
 
+        log::debug!("uart send data: {:?}", data);
+
         self.file.lock().await.write_all(data)?;
         self.file.lock().await.flush()?;
 
