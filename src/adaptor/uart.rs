@@ -74,6 +74,7 @@ impl DeviceAdaptor for Uart {
         hasher.update(&data[5..data.len() - 1]);
         data[data.len() - 1] = hasher.finalize();
         self.file.lock().await.write_all(data)?;
+        self.file.lock().await.flush()?;
 
         Ok(())
     }
