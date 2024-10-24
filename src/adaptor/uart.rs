@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use nom::{bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, IResult};
 
 use serialport::SerialPort;
+use std::num::Wrapping;
 use tokio::sync::Mutex;
 
 use super::{DeviceAdaptor, Frame, FrameFlag, FrameMeta};
@@ -17,16 +18,13 @@ const MAGIC_HEADER_BYTES: [u8; 2] = MAGIC_HEADER.to_be_bytes();
 const DATA_TYPE_REQUEST: u8 = 0x05;
 const DATA_TYPE_RESPONSE: u8 = 0x35;
 
-const CUSTOM_ALG: crc::Algorithm<u8> = crc::Algorithm {
-    width: 8,
-    poly: 0x80,
-    init: 0xff,
-    refin: false,
-    refout: false,
-    xorout: 0x0000,
-    check: 0xae,
-    residue: 0x0000,
-};
+fn checksum(data: &[u8]) -> u8 {
+    let mut checksum = Wrapping(0u8);
+    for byte in data {
+        checksum += Wrapping(*byte);
+    }
+    checksum.0
+}
 
 #[derive(Debug)]
 pub struct Uart {
@@ -60,8 +58,6 @@ impl DeviceAdaptor for Uart {
         let meta_req_id = buf.meta.id;
 
         let data = buf.data_mut();
-        let crc = crc::Crc::<u8>::new(&CUSTOM_ALG);
-        let mut hasher = crc.digest();
 
         data[0] = MAGIC_HEADER_BYTES[0];
         data[1] = MAGIC_HEADER_BYTES[1];
@@ -71,8 +67,9 @@ impl DeviceAdaptor for Uart {
         data[6] = meta_command_type;
         data[7] = meta_req_id;
 
-        hasher.update(&data[3..data.len() - 1]);
-        data[data.len() - 1] = hasher.finalize();
+        let checksum = checksum(&data[3..data.len() - 1]);
+        data[data.len() - 1] = checksum;
+
         self.file.lock().await.write_all(data)?;
         self.file.lock().await.flush()?;
 
@@ -238,7 +235,7 @@ impl TyUartProtocol {
 
         let (input, data) = Self::data_parser(input, data_len)?;
 
-        let (input, checksum) = Self::checksum_parser(input)?;
+        let (input, _checksum) = Self::checksum_parser(input)?;
 
         if !input.is_empty() {
             log::error!("recv data out of range");
@@ -247,21 +244,15 @@ impl TyUartProtocol {
                 nom::error::ErrorKind::Verify,
             )));
         }
-        // check data with crc32
-        let crc = crc::Crc::<u8>::new(&CUSTOM_ALG);
-        let mut hasher = crc.digest();
 
-        let crc_data = &original_input[3..original_input.len() - 1];
-        hasher.update(crc_data);
+        let checksum = checksum(&original_input[3..original_input.len() - 1]);
 
-        #[cfg(feature = "unstable_crc32")]
-        {
-            if hasher.finalize() != checksum {
-                return Err(nom::Err::Error(nom::error::Error::new(
-                    input,
-                    nom::error::ErrorKind::Verify,
-                )));
-            }
+        if checksum != _checksum {
+            log::error!("recv data checksum error");
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Verify,
+            )));
         }
 
         log::debug!("recv data construct ok");
