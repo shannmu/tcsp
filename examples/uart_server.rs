@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use tcsp::{
-    DownloadCommand, EchoCommand, Reboot, TcspServerBuilder, TeleMetry, TimeSync, Uart, UdpBackup,
-    UploadCommand, ZeromqSocket,
+    DownloadCommand, EchoCommand, Reboot, ResetNetwork, TcspServerBuilder, TeleMetry, TimeSync,
+    Uart, UdpBackup, UploadCommand, ZeromqSocket,
 };
 
 mod common;
@@ -29,6 +29,7 @@ async fn main() {
         .with_application(Arc::new(TimeSync::new(socket.clone())))
         .with_application(Arc::new(Reboot {}))
         .with_application(Arc::new(UdpBackup::new(socket.clone())))
+        .with_application(Arc::new(ResetNetwork {}))
         .with_application(Arc::new(UploadCommand::new(socket.clone())))
         .with_application(Arc::new(DownloadCommand::new(socket.clone())))
         .build();
