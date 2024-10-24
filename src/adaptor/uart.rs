@@ -71,7 +71,7 @@ impl DeviceAdaptor for Uart {
         data[6] = meta_command_type;
         data[7] = meta_req_id;
 
-        hasher.update(&data[3..data.len() - 1]);
+        hasher.update(&data[5..data.len() - 1]);
         data[data.len() - 1] = hasher.finalize();
         self.file.lock().await.write_all(data)?;
 
