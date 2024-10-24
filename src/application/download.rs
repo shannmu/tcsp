@@ -109,7 +109,7 @@ impl<F: Fallback> Application for DownloadCommand<F> {
 }
 
 impl<F: Fallback> DownloadCommand<F> {
-    pub(crate) const APPLICATION_ID: u8 = 5;
+    pub(crate) const APPLICATION_ID: u8 = 7;
     pub fn new(fallback: F) -> Self {
         Self {
             state: Mutex::new(Box::new(DownloadState::DownloadStart)),
