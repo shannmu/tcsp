@@ -50,7 +50,6 @@ impl Uart {
 #[async_trait]
 impl DeviceAdaptor for Uart {
     async fn send(&self, buf: super::Frame) -> Result<(), super::DeviceAdaptorError> {
-        // TODO: send函数需要做改动 => 文件下发需要多个包 => 主要看一下download.rs是如何实现下发的，对多个包的处理应该在哪
         let mut buf = buf.clone();
 
         buf.expand_head(8)?;
@@ -60,7 +59,7 @@ impl DeviceAdaptor for Uart {
         let meta_command_type = buf.meta.command_type;
         let meta_req_id = buf.meta.id;
 
-        let data = &mut buf.data_mut()[0..(meta_len) as usize];
+        let data = buf.data_mut();
         let crc = crc::Crc::<u8>::new(&CUSTOM_ALG);
         let mut hasher = crc.digest();
 
