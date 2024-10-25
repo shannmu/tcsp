@@ -67,13 +67,13 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 }
 
                 let data_frame_id = u16::from_be_bytes([data[1], data[2]]);
-                let data_frame_sum = u16::from_be_bytes([data[3], data[4]]);
+                let data_frame_sum = u16::from_be_bytes([data[3], data[4]]) - 1; // NOTE: The first frame is used to pass the file path
 
                 // Insert data into buffer
                 self.buffer
                     .lock()
                     .await
-                    .insert(data_frame_id, data[5..].to_vec());
+                    .insert(data_frame_id, data[4..].to_vec()); // NOTE: The first 4 bytes are used to pass the frame id and frame sum
 
                 let response = Frame::new_from_slice(
                     Self::APPLICATION_ID,
