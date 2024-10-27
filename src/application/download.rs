@@ -72,12 +72,10 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 log::debug!("Get the first chunk success");
 
                 let mut response_data = vec![
-                    file_mode,
                     0x00,
                     0x00,
                     u16::to_be_bytes(chunck_sum)[0],
                     u16::to_be_bytes(chunck_sum)[1],
-                    0xAA,
                 ];
                 response_data.extend_from_slice(first_chunk);
 
@@ -105,12 +103,10 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 let file_content = buffer.get(&data_frame_id).expect("Invalid frame id");
 
                 let mut response_data = vec![
-                    *file_mode,
                     u16::to_be_bytes(data_frame_id)[0],
                     u16::to_be_bytes(data_frame_id)[1],
                     u16::to_be_bytes(*chunk_sum)[0],
                     u16::to_be_bytes(*chunk_sum)[1],
-                    0xAA,
                 ];
 
                 response_data.extend_from_slice(file_content);
