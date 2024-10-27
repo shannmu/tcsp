@@ -1,7 +1,7 @@
-use std::{borrow::Borrow, collections::HashMap, time::Duration};
+use std::{borrow::Borrow, collections::HashMap, io::Read, path::PathBuf, time::Duration};
 
 use async_trait::async_trait;
-use tokio::{io::AsyncWriteExt, sync::Mutex, time::timeout};
+use tokio::{fs::File, io::AsyncWriteExt, sync::Mutex, time::timeout};
 
 use super::{Application, Fallback, Frame};
 
@@ -10,6 +10,7 @@ pub struct UploadCommand<F> {
     fallback: F,
     state: Mutex<Box<UploadState>>,
     buffer: Mutex<HashMap<u16, Vec<u8>>>,
+    file: Mutex<Option<File>>,
 }
 
 #[derive(Debug, Clone)]
@@ -19,8 +20,8 @@ enum UploadState {
 
     UploadWaiting(u8),
 
-    // Uploading(file_mode, file_name)
-    Uploading((u8, String)),
+    // Uploading(file_mode, file_path)
+    Uploading((u8, PathBuf)),
 }
 
 #[async_trait]
@@ -37,7 +38,12 @@ impl<F: Fallback> Application for UploadCommand<F> {
             }
 
             UploadState::UploadWaiting(file_mode) => {
-                let data = &frame.data()[256..]; // 0th package reserve 256 bytes for file metadata
+                // NOTE: The leading 4 bytes are used to pass the frame id and frame sum
+                let force = &frame.data()[4]; // 1 means force upload if file already exists
+                let file_path_len = u16::from_be_bytes([frame.data()[5], frame.data()[6]]);
+
+                let file_path_data = &frame.data()[256..256 + file_path_len as usize]; // 0th package reserve 256 bytes for file metadata
+
                 let _file_mode = frame.meta().id; // Id means file_mode here
                 if *file_mode != _file_mode {
                     log::error!("data type mismatch in UploadWaiting");
@@ -48,11 +54,47 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 }
 
                 // Convert data to a file path string
-                let file_path = String::from_utf8(data.to_vec()).expect("Invalid file path");
+                let file_path = std::path::PathBuf::from(
+                    std::str::from_utf8(file_path_data).expect("Invalid file path"),
+                );
 
-                let response = Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xAA])?;
-                *state = UploadState::Uploading((*file_mode, file_path));
-                Ok(Some(response))
+                // Return an error if the file already exists
+                if std::path::Path::new(&file_path).exists() && *force != 1 {
+                    log::error!("file already exists, file_path:{:?}", file_path);
+                    let response =
+                        Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xEE])?;
+                    *state = UploadState::UploadStart;
+                    return Ok(Some(response));
+                }
+
+                // Open the file
+                let file = tokio::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .open(&file_path)
+                    .await;
+
+                match file {
+                    Ok(file) => {
+                        log::info!("file opened, file_path:{:?}", file_path);
+                        self.file.lock().await.replace(file);
+                        let response =
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xAA])?;
+                        *state = UploadState::Uploading((*file_mode, file_path));
+                        Ok(Some(response))
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "failed to open file, file_path:{:?}, error:{:?}",
+                            file_path,
+                            e
+                        );
+                        let response =
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xEE])?;
+                        *state = UploadState::UploadStart;
+                        return Ok(Some(response));
+                    }
+                }
             }
 
             UploadState::Uploading((file_mode, file_path)) => {
@@ -83,14 +125,10 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 if data_frame_sum != self.buffer.lock().await.len() as u16 {
                     *state = UploadState::Uploading((*file_mode, file_path.to_owned()));
                 } else {
-                    log::info!("Saving file, file_path:{}", file_path);
+                    log::info!("Saving file, file_path:{:?}", file_path);
 
                     // Step 1. open or create the file
-                    let file = tokio::fs::OpenOptions::new()
-                        .write(true)
-                        .create(true)
-                        .open(file_path)
-                        .await?;
+                    let file = self.file.lock().await.take().expect("File not found");
 
                     // Step 2. write the file
                     let mut file = tokio::io::BufWriter::new(file);
@@ -131,6 +169,7 @@ impl<F: Fallback> UploadCommand<F> {
             fallback,
             state: Mutex::new(Box::new(UploadState::UploadStart)),
             buffer: Mutex::new(HashMap::new()),
+            file: Mutex::new(None),
         }
     }
 
