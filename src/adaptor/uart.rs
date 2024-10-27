@@ -128,7 +128,7 @@ impl DeviceAdaptor for Uart {
                 let mut data = ty_uart.data.clone();
                 // Preappend the data with `0x20, 0x05`
                 data.insert(0, 0x20);
-                data.insert(1, 0x05);
+                data.insert(1, 0x07);
                 ty_uart.data = data;
                 ty_uart.data_len += 2;
             }
