@@ -2,7 +2,10 @@ use std::io;
 
 use bitflags::bitflags;
 
+#[cfg(feature = "can")]
 const FRAME_MAX_LENGTH: usize = 150;
+#[cfg(feature = "uart")]
+const FRAME_MAX_LENGTH: usize = 1024;
 const FRAME_PADDING: usize = 18;
 const FRAME_DATA_LENGTH: usize = FRAME_MAX_LENGTH + FRAME_PADDING;
 const FRAME_DEFAULT_START_OFFSET: u16 = 16;

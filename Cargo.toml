@@ -23,7 +23,9 @@ clap = {version="4.5.11",features=["derive"]}
 zeromq = "0.4.0"
 
 [features]
-default=[]
+default=["uart"]
+uart=[]
+can=[]
 unstable_crc32=[]
 unstable_upload_and_download=[]
 unstable_hard_upload_and_download=[]

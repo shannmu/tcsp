@@ -62,10 +62,15 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                     index += 1;
                 }
 
+                log::debug!("Save to buffer success");
+
                 // Send the first frame to the client
                 let chunck_sum = buffer.len() as u16;
 
                 let first_chunk = buffer.get(&0).expect("First chunk not found");
+
+                log::debug!("Get the first chunk success");
+
                 let mut response_data = vec![
                     file_mode,
                     0x00,
@@ -75,6 +80,8 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                     0xAA,
                 ];
                 response_data.extend_from_slice(first_chunk);
+
+                log::debug!("Construct the response success");
 
                 let response = Frame::new_from_slice(Self::APPLICATION_ID, &response_data)?;
                 *state = DownloadState::Downloading((file_mode, file_path, chunck_sum));
