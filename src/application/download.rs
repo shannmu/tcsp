@@ -40,6 +40,7 @@ impl<F: Fallback> Application for DownloadCommand<F> {
 
                 {
                     let file_path = std::path::PathBuf::from(file_path.clone());
+                    log::debug!("Download file: {:?}", file_path);
                     if !file_path.exists() {
                         log::error!("File not found");
                         let response =
@@ -51,6 +52,7 @@ impl<F: Fallback> Application for DownloadCommand<F> {
 
                 // Read the file content by file_path
                 let file_content = std::fs::read(&file_path).expect("Failed to read file content");
+                log::debug!("Read file success");
 
                 // Save the file content to buffer, each item in buffer is 1024 bytes
                 let mut buffer = self.buffer.lock().await;
