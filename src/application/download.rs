@@ -30,7 +30,24 @@ impl<F: Fallback> Application for DownloadCommand<F> {
             DownloadState::DownloadStart => {
                 let file_mode = frame.meta().id;
                 let data = frame.data();
+
+                #[cfg(feature = "unstable_hard_upload_and_download")]
+                let file_path = String::from_utf8("/home/user/uart_download".bytes().collect())
+                    .expect("Invalid file path");
+
+                #[cfg(not(feature = "unstable_hard_upload_and_download"))]
                 let file_path = String::from_utf8(data.to_vec()).expect("Invalid file path");
+
+                {
+                    let file_path = std::path::PathBuf::from(file_path.clone());
+                    if !file_path.exists() {
+                        log::error!("File not found");
+                        let response =
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[file_mode, 0xEE])?;
+                        *state = DownloadState::DownloadStart;
+                        return Ok(Some(response));
+                    }
+                }
 
                 // Read the file content by file_path
                 let file_content = std::fs::read(&file_path).expect("Failed to read file content");
