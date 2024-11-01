@@ -32,8 +32,8 @@ impl<F: Fallback> Application for UploadCommand<F> {
         match state {
             UploadState::UploadStart => {
                 let file_mode = frame.data()[0]; // data_tpye means file mode here
-                let response =
-                    Frame::new_from_slice(Self::APPLICATION_ID, &[file_mode, 0xAA], false)?;
+                let mut response = Frame::new_from_slice(Self::APPLICATION_ID, &[0xAA], false)?;
+                response.set_meta_from_request(frame.meta());
                 *state = UploadState::UploadWaiting(file_mode);
                 Ok(Some(response))
             }
@@ -62,8 +62,8 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 // Return an error if the file already exists
                 if std::path::Path::new(&file_path).exists() && *force != 1 {
                     log::error!("file already exists, file_path:{:?}", file_path);
-                    let response =
-                        Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xEE], true)?;
+                    let mut response = Frame::new_from_slice(Self::APPLICATION_ID, &[0xEE], true)?;
+                    response.set_meta_from_request(frame.meta());
                     *state = UploadState::UploadStart;
                     return Ok(Some(response));
                 }
@@ -79,8 +79,9 @@ impl<F: Fallback> Application for UploadCommand<F> {
                     Ok(file) => {
                         log::info!("file opened, file_path:{:?}", file_path);
                         self.file.lock().await.replace(file);
-                        let response =
-                            Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xAA], true)?;
+                        let mut response =
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[0xAA], true)?;
+                        response.set_meta_from_request(frame.meta());
                         *state = UploadState::Uploading((*file_mode, file_path));
                         Ok(Some(response))
                     }
@@ -90,8 +91,9 @@ impl<F: Fallback> Application for UploadCommand<F> {
                             file_path,
                             e
                         );
-                        let response =
-                            Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xEE], true)?;
+                        let mut response =
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[0xEE], true)?;
+                        response.set_meta_from_request(frame.meta());
                         *state = UploadState::UploadStart;
                         return Ok(Some(response));
                     }
@@ -118,11 +120,9 @@ impl<F: Fallback> Application for UploadCommand<F> {
                     .await
                     .insert(data_frame_id, data[4..].to_vec()); // NOTE: The first 4 bytes are used to pass the frame id and frame sum
 
-                let response = Frame::new_from_slice(
-                    Self::APPLICATION_ID,
-                    &[*file_mode, data[1], data[2], 0xAA],
-                    true,
-                )?;
+                let mut response =
+                    Frame::new_from_slice(Self::APPLICATION_ID, &[data[1], data[2], 0xAA], true)?;
+                response.set_meta_from_request(frame.meta());
 
                 if data_frame_sum != self.buffer.lock().await.len() as u16 {
                     *state = UploadState::Uploading((*file_mode, file_path.to_owned()));

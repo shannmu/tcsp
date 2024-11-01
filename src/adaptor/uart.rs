@@ -18,12 +18,44 @@ const MAGIC_HEADER_BYTES: [u8; 2] = MAGIC_HEADER.to_be_bytes();
 const DATA_TYPE_REQUEST: u8 = 0x05;
 const DATA_TYPE_RESPONSE: u8 = 0x35;
 
-fn checksum(data: &[u8]) -> u8 {
+fn checksum_8(data: &[u8]) -> u8 {
     let mut checksum = Wrapping(0u8);
     for byte in data {
         checksum += Wrapping(*byte);
     }
     checksum.0
+}
+
+use lazy_static::lazy_static;
+
+// CRC32 查找表
+lazy_static! {
+    static ref CRC_TAB: [u32; 256] = {
+        let polynomial = 0xEDB88320;
+        let mut table = [0u32; 256];
+
+        for i in 0..256 {
+            let mut crc = i as u32;
+            for _ in 0..8 {
+                if crc & 1 != 0 {
+                    crc = (crc >> 1) ^ polynomial;
+                } else {
+                    crc >>= 1;
+                }
+            }
+            table[i] = crc;
+        }
+        table
+    };
+}
+
+// 计算 CRC32
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xFFFFFFFF;
+    for &byte in data {
+        crc = CRC_TAB[(crc ^ byte as u32) as usize & 0xFF] ^ (crc >> 8);
+    }
+    crc ^ 0xFFFFFFFF
 }
 
 #[derive(Debug)]
@@ -51,11 +83,15 @@ impl DeviceAdaptor for Uart {
         let mut buf = buf.clone();
 
         buf.expand_head(8)?;
-        buf.expand_tail(1)?;
-        let meta_len = buf.meta.len;
 
         let meta_command_type = buf.meta.command_type;
         let meta_req_id = buf.meta.id;
+        if meta_command_type == 0xC0 {
+            buf.expand_tail(4)?;
+        } else {
+            buf.expand_tail(1)?;
+        }
+        let meta_len = buf.meta.len;
 
         let data = buf.data_mut();
 
@@ -67,8 +103,13 @@ impl DeviceAdaptor for Uart {
         data[6] = meta_command_type;
         data[7] = meta_req_id;
 
-        let checksum = checksum(&data[3..data.len() - 1]);
-        data[data.len() - 1] = checksum;
+        if meta_command_type == 0xC0 {
+            let crc = crc32(&data[3..data.len() - 4]);
+            let len = data.len();
+            data[len - 4..len].copy_from_slice(&crc.to_be_bytes());
+        } else {
+            data[data.len() - 1] = checksum_8(&data[3..data.len() - 1]);
+        }
 
         log::debug!("uart send data: {:?}", data);
 
@@ -247,7 +288,7 @@ impl TyUartProtocol {
             )));
         }
 
-        let checksum = checksum(&original_input[3..original_input.len() - 1]);
+        let checksum = checksum_8(&original_input[3..original_input.len() - 1]);
 
         if checksum != _checksum {
             log::error!("recv data checksum error");

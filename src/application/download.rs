@@ -43,8 +43,9 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                     log::debug!("Download file: {:?}", file_path);
                     if !file_path.exists() {
                         log::error!("File not found");
-                        let response =
-                            Frame::new_from_slice(Self::APPLICATION_ID, &[file_mode, 0xEE], true)?;
+                        let mut response =
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[0xEE], true)?;
+                        response.set_meta_from_request(frame.meta());
                         *state = DownloadState::DownloadStart;
                         return Ok(Some(response));
                     }
@@ -81,7 +82,9 @@ impl<F: Fallback> Application for DownloadCommand<F> {
 
                 log::debug!("Construct the response success");
 
-                let response = Frame::new_from_slice(Self::APPLICATION_ID, &response_data, true)?;
+                let mut response =
+                    Frame::new_from_slice(Self::APPLICATION_ID, &response_data, true)?;
+                response.set_meta_from_request(frame.meta());
                 *state = DownloadState::Downloading((file_mode, file_path, chunck_sum));
                 Ok(Some(response))
             }
@@ -110,7 +113,9 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 ];
 
                 response_data.extend_from_slice(file_content);
-                let response = Frame::new_from_slice(Self::APPLICATION_ID, &response_data, true)?;
+                let mut response =
+                    Frame::new_from_slice(Self::APPLICATION_ID, &response_data, true)?;
+                response.set_meta_from_request(frame.meta());
                 if data_frame_id == *chunk_sum - 1 {
                     *state = DownloadState::DownloadStart;
                 } else {
