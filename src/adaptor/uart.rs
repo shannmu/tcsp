@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use nom::{bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, IResult};
+use nom::{
+    bytes::complete::take, combinator::map_res, error::ErrorKind, sequence::tuple, AsBytes, IResult,
+};
 
 use serialport::SerialPort;
 use std::num::Wrapping;
@@ -263,7 +265,6 @@ pub struct TyUartProtocol {
     command_type: Command,
     req_id: u8,
     data: Vec<u8>,
-    checksum: u8,
 }
 
 impl TyUartProtocol {
@@ -282,20 +283,30 @@ impl TyUartProtocol {
 
         let (input, data) = Self::data_parser(input, data_len)?;
 
-        let (input, _checksum) = Self::checksum_parser(input)?;
+        if command_type == Command::TeleCommand(TeleCommand::UploadDataCommand) {
+            let (input, _crc32) = Self::crc32_parser(input)?;
+            let crc32 = crc32(&original_input[3..original_input.len() - 4]);
+            if _crc32 != crc32 {
+                log::error!("recv data crc32 error");
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    input,
+                    nom::error::ErrorKind::Verify,
+                )));
+            }
+        } else {
+            let (input, _checksum) = Self::checksum_8_parser(input)?;
+            let checksum = checksum_8(&original_input[3..original_input.len() - 1]);
+            if _checksum != checksum {
+                log::error!("recv data checksum error");
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    input,
+                    nom::error::ErrorKind::Verify,
+                )));
+            }
+        }
 
         if !input.is_empty() {
             log::error!("recv data out of range");
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Verify,
-            )));
-        }
-
-        let checksum = checksum_8(&original_input[3..original_input.len() - 1]);
-
-        if checksum != _checksum {
-            log::error!("recv data checksum error");
             return Err(nom::Err::Error(nom::error::Error::new(
                 input,
                 nom::error::ErrorKind::Verify,
@@ -313,7 +324,6 @@ impl TyUartProtocol {
                 command_type,
                 req_id,
                 data,
-                checksum,
             },
         ))
     }
@@ -416,11 +426,20 @@ impl TyUartProtocol {
         })(input)
     }
 
-    fn checksum_parser(input: &[u8]) -> IResult<&[u8], u8> {
+    fn checksum_8_parser(input: &[u8]) -> IResult<&[u8], u8> {
         map_res(take(1u64), |input: &[u8]| {
             let mut result = [0u8; 1];
             result.copy_from_slice(input);
             let res: Result<u8, std::num::ParseFloatError> = Ok(u8::from_be_bytes(result));
+            res
+        })(input)
+    }
+
+    fn crc32_parser(input: &[u8]) -> IResult<&[u8], u32> {
+        map_res(take(4u64), |input: &[u8]| {
+            let mut result = [0u8; 4];
+            result.copy_from_slice(input);
+            let res: Result<u32, std::num::ParseFloatError> = Ok(u32::from_be_bytes(result));
             res
         })(input)
     }
@@ -437,7 +456,6 @@ impl TyUartProtocol {
         result.extend_from_slice(&command_type.to_be_bytes());
         result.extend_from_slice(&self.req_id.to_be_bytes());
         result.extend_from_slice(&self.data);
-        result.extend_from_slice(&self.checksum.to_be_bytes());
         result
     }
 }
@@ -461,7 +479,6 @@ pub fn tyuart_from_slice_to_self_test() {
                 command_type: Command::TeleCommand(TeleCommand::BasicTeleCommand),
                 req_id: 0x01,
                 data: vec![0x02, 0x03, 0x04, 0x05, 0x06],
-                checksum: 0x07
             }
         ))
     );
