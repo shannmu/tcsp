@@ -35,6 +35,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 let mut response =
                     Frame::new_from_slice(Self::APPLICATION_ID, &[file_mode, 0xAA], true)?;
                 response.set_meta_from_request(frame.meta());
+                response.set_len(2)?;
                 *state = UploadState::UploadWaiting(file_mode);
                 Ok(Some(response))
             }
@@ -65,6 +66,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                     log::error!("file already exists, file_path:{:?}", file_path);
                     let mut response = Frame::new_from_slice(Self::APPLICATION_ID, &[0xEE], true)?;
                     response.set_meta_from_request(frame.meta());
+                    response.set_len(1)?;
                     *state = UploadState::UploadStart;
                     return Ok(Some(response));
                 }
@@ -83,6 +85,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                         let mut response =
                             Frame::new_from_slice(Self::APPLICATION_ID, &[0xAA], true)?;
                         response.set_meta_from_request(frame.meta());
+                        response.set_len(1)?;
                         *state = UploadState::Uploading((*file_mode, file_path));
                         Ok(Some(response))
                     }
@@ -95,6 +98,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                         let mut response =
                             Frame::new_from_slice(Self::APPLICATION_ID, &[0xEE], true)?;
                         response.set_meta_from_request(frame.meta());
+                        response.set_len(1)?;
                         *state = UploadState::UploadStart;
                         return Ok(Some(response));
                     }
@@ -124,6 +128,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 let mut response =
                     Frame::new_from_slice(Self::APPLICATION_ID, &[data[1], data[2], 0xAA], true)?;
                 response.set_meta_from_request(frame.meta());
+                response.set_len(3)?;
 
                 if data_frame_sum != self.buffer.lock().await.len() as u16 {
                     *state = UploadState::Uploading((*file_mode, file_path.to_owned()));
