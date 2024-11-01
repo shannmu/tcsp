@@ -98,7 +98,11 @@ impl DeviceAdaptor for Uart {
         data[0] = MAGIC_HEADER_BYTES[0];
         data[1] = MAGIC_HEADER_BYTES[1];
         data[2] = self.device_id;
-        data[3..5].copy_from_slice(&(meta_len - 6).to_be_bytes());
+        if meta_command_type == 0xC0 {
+            data[3..5].copy_from_slice(&(meta_len - 9).to_be_bytes());
+        } else {
+            data[3..5].copy_from_slice(&(meta_len - 6).to_be_bytes());
+        }
         data[5] = DATA_TYPE_RESPONSE;
         data[6] = meta_command_type;
         data[7] = meta_req_id;
