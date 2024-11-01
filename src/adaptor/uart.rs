@@ -283,27 +283,31 @@ impl TyUartProtocol {
 
         let (input, data) = Self::data_parser(input, data_len)?;
 
-        if command_type == Command::TeleCommand(TeleCommand::UploadDataCommand) {
-            let (input, _crc32) = Self::crc32_parser(input)?;
-            let crc32 = crc32(&original_input[3..original_input.len() - 4]);
-            if _crc32 != crc32 {
-                log::error!("recv data crc32 error");
-                return Err(nom::Err::Error(nom::error::Error::new(
-                    input,
-                    nom::error::ErrorKind::Verify,
-                )));
+        let input = {
+            if command_type == Command::TeleCommand(TeleCommand::UploadDataCommand) {
+                let (input, _crc32) = Self::crc32_parser(input)?;
+                let crc32 = crc32(&original_input[3..original_input.len() - 4]);
+                if _crc32 != crc32 {
+                    log::error!("recv data crc32 error");
+                    return Err(nom::Err::Error(nom::error::Error::new(
+                        input,
+                        nom::error::ErrorKind::Verify,
+                    )));
+                }
+                input
+            } else {
+                let (input, _checksum) = Self::checksum_8_parser(input)?;
+                let checksum = checksum_8(&original_input[3..original_input.len() - 1]);
+                if _checksum != checksum {
+                    log::error!("recv data checksum error");
+                    return Err(nom::Err::Error(nom::error::Error::new(
+                        input,
+                        nom::error::ErrorKind::Verify,
+                    )));
+                }
+                input
             }
-        } else {
-            let (input, _checksum) = Self::checksum_8_parser(input)?;
-            let checksum = checksum_8(&original_input[3..original_input.len() - 1]);
-            if _checksum != checksum {
-                log::error!("recv data checksum error");
-                return Err(nom::Err::Error(nom::error::Error::new(
-                    input,
-                    nom::error::ErrorKind::Verify,
-                )));
-            }
-        }
+        };
 
         if !input.is_empty() {
             log::error!("recv data out of range");
