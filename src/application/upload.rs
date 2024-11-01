@@ -32,7 +32,8 @@ impl<F: Fallback> Application for UploadCommand<F> {
         match state {
             UploadState::UploadStart => {
                 let file_mode = frame.data()[0]; // data_tpye means file mode here
-                let mut response = Frame::new_from_slice(Self::APPLICATION_ID, &[0xAA], false)?;
+                let mut response =
+                    Frame::new_from_slice(Self::APPLICATION_ID, &[file_mode, 0xAA], true)?;
                 response.set_meta_from_request(frame.meta());
                 *state = UploadState::UploadWaiting(file_mode);
                 Ok(Some(response))
