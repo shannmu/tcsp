@@ -67,7 +67,7 @@ impl From<u8> for NetworkControlCommand {
 #[async_trait]
 impl Application for ResetNetwork {
     async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        let mut response = Frame::new_from_slice(Self::APPLICATION_ID, frame.data())?;
+        let mut response = Frame::new_from_slice(Self::APPLICATION_ID, frame.data(), false)?;
         response.set_meta_from_request(frame.meta());
 
         let cmd = NetworkControlCommand::from(frame.data()[0]);
@@ -109,7 +109,7 @@ impl Application for ResetNetwork {
         Self::APPLICATION_ID
     }
 
-    fn application_name(&self) -> &'static str{
+    fn application_name(&self) -> &'static str {
         "Reset Network"
     }
 

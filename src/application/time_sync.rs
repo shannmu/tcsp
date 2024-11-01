@@ -49,7 +49,7 @@ impl<F: Fallback> Application for TimeSync<F> {
         Self::APPLICATION_ID
     }
 
-    fn application_name(&self) -> &'static str{
+    fn application_name(&self) -> &'static str {
         "Time synchronize"
     }
 }
@@ -61,7 +61,7 @@ impl<F> TimeSync<F> {
     ///
     /// Provide a datetime to be used as the timestamp
     pub(crate) fn request(datetime: DateTime<Utc>) -> std::io::Result<Frame> {
-        Frame::new_from_slice(1, &datetime.timestamp().to_be_bytes())
+        Frame::new_from_slice(1, &datetime.timestamp().to_be_bytes(), false)
     }
 
     pub(crate) fn request_now() -> std::io::Result<Frame> {

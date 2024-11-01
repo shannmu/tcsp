@@ -9,9 +9,9 @@ pub struct EchoCommand;
 #[async_trait]
 impl Application for EchoCommand {
     async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        let mut response = Frame::new_from_slice(Self::APPLICATION_ID, frame.data())?;
+        let mut response = Frame::new_from_slice(Self::APPLICATION_ID, frame.data(), false)?;
         response.set_meta_from_request(frame.meta());
-        
+
         Ok(Some(response))
     }
 
@@ -19,7 +19,7 @@ impl Application for EchoCommand {
         Self::APPLICATION_ID
     }
 
-    fn application_name(&self) -> &'static str{
+    fn application_name(&self) -> &'static str {
         "Echo"
     }
 }
@@ -33,6 +33,6 @@ impl EchoCommand {
                 "too long content",
             ));
         }
-        Frame::new_from_slice(2, content)
+        Frame::new_from_slice(2, content, false)
     }
 }

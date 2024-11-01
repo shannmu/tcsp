@@ -7,7 +7,7 @@ pub struct Reboot {}
 #[async_trait]
 impl Application for Reboot {
     async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        let mut response = Frame::new_from_slice(Self::APPLICATION_ID, "ok".as_bytes())?;
+        let mut response = Frame::new_from_slice(Self::APPLICATION_ID, "ok".as_bytes(), false)?;
         response.set_meta_from_request(frame.meta());
 
         log::info!("receive reboot");
@@ -18,7 +18,7 @@ impl Application for Reboot {
         Self::APPLICATION_ID
     }
 
-    fn application_name(&self) -> &'static str{
+    fn application_name(&self) -> &'static str {
         "Reboot"
     }
 }
@@ -26,6 +26,6 @@ impl Application for Reboot {
 impl Reboot {
     pub(crate) const APPLICATION_ID: u8 = 3;
     pub(crate) fn request(&self) -> std::io::Result<Frame> {
-        Ok(Frame::new(Self::APPLICATION_ID))
+        Ok(Frame::new(Self::APPLICATION_ID, false))
     }
 }

@@ -2,8 +2,7 @@ use std::{io, mem::size_of};
 
 use crate::adaptor::{Frame as BusFrame, FrameFlag, FrameMeta};
 
-
-pub(crate)const VERSION_ID: u8 = 0x20;
+pub(crate) const VERSION_ID: u8 = 0x20;
 
 #[repr(C)]
 pub(crate) struct FrameHeader {
@@ -15,7 +14,7 @@ impl TryFrom<&[u8]> for FrameHeader {
     type Error = std::io::Error;
 
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
-        if buf.len() < size_of::<FrameHeader>(){
+        if buf.len() < size_of::<FrameHeader>() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Buffer not larges enough",
@@ -30,7 +29,7 @@ impl TryFrom<&mut [u8]> for &mut FrameHeader {
     type Error = std::io::Error;
 
     fn try_from(buf: &mut [u8]) -> Result<Self, Self::Error> {
-        if buf.len() < size_of::<FrameHeader>(){
+        if buf.len() < size_of::<FrameHeader>() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Buffer not larges enough",
@@ -75,20 +74,24 @@ impl TryFrom<Frame> for BusFrame {
 }
 
 impl Frame {
-    pub(crate) fn new(application_id: u8) -> Self {
+    pub(crate) fn new(application_id: u8, hdr_inserted: bool) -> Self {
         Self {
             bus_frame: BusFrame::default(),
             application_id,
-            hdr_inserted: false,
+            hdr_inserted: hdr_inserted,
         }
     }
 
-    pub(crate) fn new_from_slice(application_id: u8,data: &[u8]) -> io::Result<Self> {
-        let bus_frame =  BusFrame::new(FrameMeta::default(),data)?;
+    pub(crate) fn new_from_slice(
+        application_id: u8,
+        data: &[u8],
+        hdr_inserted: bool,
+    ) -> io::Result<Self> {
+        let bus_frame = BusFrame::new(FrameMeta::default(), data)?;
         Ok(Self {
             bus_frame,
             application_id,
-            hdr_inserted: false,
+            hdr_inserted: hdr_inserted,
         })
     }
 
@@ -122,7 +125,7 @@ impl Frame {
     pub(crate) fn meta_mut(&mut self) -> &mut FrameMeta {
         &mut self.bus_frame.meta
     }
-    
+
     pub(crate) fn set_meta(&mut self, meta: &FrameMeta) {
         self.bus_frame.meta = *meta;
     }
@@ -148,13 +151,13 @@ fn install_header_if_needed(frame: &mut BusFrame) -> Result<(), io::Error> {
     if meta.flag.contains(FrameFlag::UartTelemetry) {
         // The application id=1 refers to the telemetry service.
         insert_header(frame, 0)?;
-    }else if meta.flag.contains(FrameFlag::CanTimeBroadcast) {
+    } else if meta.flag.contains(FrameFlag::CanTimeBroadcast) {
         // The CanTimeBroadcast's first two bytes should be 0x50 0x05
         // We can ignore them.
         frame.shrink_head(2)?;
         // The application id=1 refers to the time sync service.
         insert_header(frame, 1)?;
-    }else{
+    } else {
         {}
     }
     Ok(())

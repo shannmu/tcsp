@@ -12,10 +12,10 @@ pub struct TeleMetry<F> {
 #[async_trait]
 impl<F: Fallback> Application for TeleMetry<F> {
     async fn handle(&self, frame: Frame, _mtu: u16) -> std::io::Result<Option<Frame>> {
-        let mut response = Frame::new(Self::APPLICATION_ID);
+        let mut response = Frame::new(Self::APPLICATION_ID, false);
         response.set_meta_from_request(frame.meta());
         response.set_len(100)?;
-        const TELEMETRY_CODE :  [u8;4]= [0,0,0xea,0x60];
+        const TELEMETRY_CODE: [u8; 4] = [0, 0, 0xea, 0x60];
         let send_future = self.fallback.fallback(TELEMETRY_CODE.to_vec());
         let reply = timeout(Duration::from_millis(100), send_future).await??;
         let buf = response.data_mut();
@@ -30,7 +30,7 @@ impl<F: Fallback> Application for TeleMetry<F> {
         Self::APPLICATION_ID
     }
 
-    fn application_name(&self) -> &'static str{
+    fn application_name(&self) -> &'static str {
         "Telemetry"
     }
 }
@@ -39,10 +39,9 @@ impl<F: Fallback> TeleMetry<F> {
     pub(crate) const APPLICATION_ID: u8 = 0;
 }
 
-
 impl<F> TeleMetry<F> {
     pub fn request(src_id: u8, dst_id: u8) -> std::io::Result<Frame> {
-        let mut frame = Frame::new(0);
+        let mut frame = Frame::new(0, false);
         frame.meta_mut().src_id = src_id;
         frame.meta_mut().dest_id = dst_id;
         Ok(frame)

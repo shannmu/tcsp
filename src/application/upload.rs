@@ -32,7 +32,8 @@ impl<F: Fallback> Application for UploadCommand<F> {
         match state {
             UploadState::UploadStart => {
                 let file_mode = frame.data()[0]; // data_tpye means file mode here
-                let response = Frame::new_from_slice(Self::APPLICATION_ID, &[file_mode, 0xAA])?;
+                let response =
+                    Frame::new_from_slice(Self::APPLICATION_ID, &[file_mode, 0xAA], false)?;
                 *state = UploadState::UploadWaiting(file_mode);
                 Ok(Some(response))
             }
@@ -62,7 +63,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 if std::path::Path::new(&file_path).exists() && *force != 1 {
                     log::error!("file already exists, file_path:{:?}", file_path);
                     let response =
-                        Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xEE])?;
+                        Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xEE], true)?;
                     *state = UploadState::UploadStart;
                     return Ok(Some(response));
                 }
@@ -79,7 +80,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                         log::info!("file opened, file_path:{:?}", file_path);
                         self.file.lock().await.replace(file);
                         let response =
-                            Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xAA])?;
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xAA], true)?;
                         *state = UploadState::Uploading((*file_mode, file_path));
                         Ok(Some(response))
                     }
@@ -90,7 +91,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                             e
                         );
                         let response =
-                            Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xEE])?;
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[*file_mode, 0xEE], true)?;
                         *state = UploadState::UploadStart;
                         return Ok(Some(response));
                     }
@@ -120,6 +121,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 let response = Frame::new_from_slice(
                     Self::APPLICATION_ID,
                     &[*file_mode, data[1], data[2], 0xAA],
+                    true,
                 )?;
 
                 if data_frame_sum != self.buffer.lock().await.len() as u16 {
@@ -180,6 +182,6 @@ impl<F: Fallback> UploadCommand<F> {
                 "too long content",
             ));
         }
-        Frame::new_from_slice(Self::APPLICATION_ID, content)
+        Frame::new_from_slice(Self::APPLICATION_ID, content, true)
     }
 }
