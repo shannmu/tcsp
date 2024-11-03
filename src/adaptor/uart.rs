@@ -139,19 +139,27 @@ impl DeviceAdaptor for Uart {
             .read_exact(&mut buf)
             .map_err(|_| super::DeviceAdaptorError::Empty)?;
 
-        let mut crc_buf = [0u8; 1];
-        self.file.lock().await.read_exact(&mut crc_buf)?;
+        let mut crc_buf: [u8; 4] = [0; 4];
+        let crc_buf = {
+            if buf[1] == 0xA1 {
+                &mut crc_buf
+            } else {
+                &mut crc_buf[0..1]
+            }
+        };
+        self.file.lock().await.read_exact(crc_buf)?;
 
         let mut data = vec![];
         data.extend(&header_buf);
         data.extend(&buf);
-        data.extend(&crc_buf);
+        data.extend(&*crc_buf);
 
         #[allow(unused_mut)]
         let mut ty_uart = TyUartProtocol::from_slice_to_self(&data)
             .map_err(|_| super::DeviceAdaptorError::FrameError("recv data error".to_string()))?
             .1;
 
+        // TODO: Code here may be moved to impl of `TyUartProtocol`
         #[cfg(feature = "unstable_upload_and_download")]
         {
             if let Command::TeleCommand(TeleCommand::UploadRequestCommand) = ty_uart.command_type {
