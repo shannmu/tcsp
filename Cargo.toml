@@ -16,7 +16,7 @@ tokio = {version = "1.38.0", features = ["full"]}
 thiserror = "1.0.61"
 env_logger = "0.11.3"
 chrono = "0.4.38"
-serialport = {version = "4.3.0", default-features = false}
+serialport = {version = "4.3.0"}
 crc = "3.2.1"
 libc = "0.2.155"
 clap = {version="4.5.11",features=["derive"]}
@@ -24,13 +24,11 @@ zeromq = "0.4.0"
 lazy_static = "1.5.0"
 
 [features]
-default=["uart"]
+default=["uart", "unstable_upload_and_download", "unstable_hard_upload_and_download"]
 uart=[]
 can=[]
-unstable_crc32=[]
 unstable_upload_and_download=[]
 unstable_hard_upload_and_download=[]
-libudev=["serialport/default"]
 netlink_can_error_detection=[]
 d2000=["netlink_can_error_detection"]
 
