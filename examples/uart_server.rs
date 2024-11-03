@@ -6,12 +6,31 @@ use tcsp::{
 };
 
 mod common;
+use clap::Parser;
 use common::init_logger;
 use tokio::time::timeout;
+
+#[derive(Parser, Debug)]
+#[command(about, long_about = None)]
+struct Args {
+    #[arg(required = true)]
+    devicea_name: String,
+    #[arg(required = true)]
+    device_id: u8,
+}
 
 #[tokio::main]
 async fn main() {
     init_logger(log::Level::Debug).unwrap();
+
+    let args = Args::parse();
+    let device_name = args.devicea_name;
+    let device_id = args.device_id;
+    log::debug!(
+        "device name = {}, device id = 0x{:x}",
+        device_name,
+        device_id
+    );
 
     let socket = ZeromqSocket::new();
     timeout(
@@ -22,7 +41,7 @@ async fn main() {
     .expect("Connection timeout")
     .expect("Failed to connect");
     #[allow(clippy::unwrap_used)]
-    let adaptor = Uart::new("/dev/ttyAMA1", 115200, 0x84).await;
+    let adaptor = Uart::new(device_name.as_str(), 115200, device_id).await;
     let server = TcspServerBuilder::new_uart(adaptor)
         .with_application(Arc::new(TeleMetry::new(socket.clone())))
         .with_application(Arc::new(EchoCommand {}))
