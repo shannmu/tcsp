@@ -86,7 +86,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                         let mut response =
                             Frame::new_from_slice(Self::APPLICATION_ID, &[0x00, 0x00, 0xAA], true)?;
                         response.set_meta_from_request(frame.meta());
-                        response.set_len(1)?;
+                        response.set_len(3)?;
                         *state = UploadState::Uploading((*file_mode, file_path));
                         Ok(Some(response))
                     }
@@ -99,7 +99,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                         let mut response =
                             Frame::new_from_slice(Self::APPLICATION_ID, &[0x00, 0x00, 0xEE], true)?;
                         response.set_meta_from_request(frame.meta());
-                        response.set_len(1)?;
+                        response.set_len(3)?;
                         *state = UploadState::UploadStart;
                         return Ok(Some(response));
                     }
