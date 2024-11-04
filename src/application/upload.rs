@@ -131,6 +131,12 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 response.set_meta_from_request(frame.meta());
                 response.set_len(3)?;
 
+                log::info!(
+                    "Uploading file, frame_sum:{}, buffer_len:{}",
+                    data_frame_sum,
+                    self.buffer.lock().await.len()
+                );
+
                 if data_frame_sum != self.buffer.lock().await.len() as u16 {
                     *state = UploadState::Uploading((*file_mode, file_path.to_owned()));
                 } else {
