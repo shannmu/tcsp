@@ -31,7 +31,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
         let state = guard.as_mut();
         match state {
             UploadState::UploadStart => {
-                let file_mode = frame.meta().id; // data_tpye means file mode here
+                let file_mode = frame.data()[0]; // data_tpye means file mode here
                 let mut response =
                     Frame::new_from_slice(Self::APPLICATION_ID, &[file_mode, 0xAA], true)?;
                 response.set_meta_from_request(frame.meta());
