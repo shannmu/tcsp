@@ -131,6 +131,7 @@ impl DeviceAdaptor for Uart {
 
         self.file.lock().await.write_all(data)?;
         self.file.lock().await.flush()?;
+        log::debug!("uart send data len: {:?}", data.len());
         log::debug!("uart send data: {:?}", data);
 
         Ok(())
