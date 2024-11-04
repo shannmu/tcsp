@@ -24,7 +24,7 @@ zeromq = "0.4.0"
 lazy_static = "1.5.0"
 
 [features]
-default=["uart", "unstable_upload_and_download", "unstable_hard_upload_and_download"]
+default=["uart", "unstable_upload_and_download"]
 uart=[]
 can=[]
 unstable_upload_and_download=[]

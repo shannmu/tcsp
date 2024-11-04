@@ -16,8 +16,8 @@ pub struct DownloadCommand<F> {
 enum DownloadState {
     DownloadStart,
 
-    // (file_mode, file_path, chunk_sum)
-    Downloading((u8, String, u16)),
+    // (file_mode, file_path, chunk_id(next), chunk_sum)
+    Downloading((u8, String, u16, u16)),
 }
 
 #[async_trait]
@@ -31,11 +31,6 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 let file_mode = frame.meta().id;
                 let data = frame.data();
 
-                #[cfg(feature = "unstable_hard_upload_and_download")]
-                let file_path = String::from_utf8("/home/user/uart_download".bytes().collect())
-                    .expect("Invalid file path");
-
-                #[cfg(not(feature = "unstable_hard_upload_and_download"))]
                 let file_path = String::from_utf8(data.to_vec()).expect("Invalid file path");
 
                 {
@@ -85,11 +80,11 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 let mut response =
                     Frame::new_from_slice(Self::APPLICATION_ID, &response_data, true)?;
                 response.set_meta_from_request(frame.meta());
-                *state = DownloadState::Downloading((file_mode, file_path, chunck_sum));
+                *state = DownloadState::Downloading((file_mode, file_path, 1, chunck_sum));
                 Ok(Some(response))
             }
 
-            DownloadState::Downloading((file_mode, file_path, chunk_sum)) => {
+            DownloadState::Downloading((file_mode, file_path, chunk_id, chunk_sum)) => {
                 let data = frame.data();
                 let _file_mode = frame.meta().id;
                 if *file_mode != _file_mode {
@@ -100,14 +95,12 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                     ));
                 }
 
-                let data_frame_id = u16::from_be_bytes([data[1], data[2]]);
-
                 let buffer = self.buffer.lock().await;
-                let file_content = buffer.get(&data_frame_id).expect("Invalid frame id");
+                let file_content = buffer.get(&chunk_id).expect("Invalid frame id");
 
                 let mut response_data = vec![
-                    u16::to_be_bytes(data_frame_id)[0],
-                    u16::to_be_bytes(data_frame_id)[1],
+                    u16::to_be_bytes(*chunk_id)[0],
+                    u16::to_be_bytes(*chunk_id)[1],
                     u16::to_be_bytes(*chunk_sum)[0],
                     u16::to_be_bytes(*chunk_sum)[1],
                 ];
@@ -116,11 +109,15 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 let mut response =
                     Frame::new_from_slice(Self::APPLICATION_ID, &response_data, true)?;
                 response.set_meta_from_request(frame.meta());
-                if data_frame_id == *chunk_sum - 1 {
+                if *chunk_id == *chunk_sum - 1 {
                     *state = DownloadState::DownloadStart;
                 } else {
-                    *state =
-                        DownloadState::Downloading((*file_mode, file_path.to_owned(), *chunk_sum));
+                    *state = DownloadState::Downloading((
+                        *file_mode,
+                        file_path.to_owned(),
+                        *chunk_id + 1,
+                        *chunk_sum,
+                    ));
                 }
                 Ok(Some(response))
             }
