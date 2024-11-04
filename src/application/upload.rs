@@ -45,7 +45,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 let force = &frame.data()[4]; // 1 means force upload if file already exists
                 let file_path_len = u16::from_be_bytes([frame.data()[5], frame.data()[6]]);
 
-                let file_path_data = &frame.data()[256..256 + file_path_len as usize]; // 0th package reserve 256 bytes for file metadata
+                let file_path_data = &frame.data()[4 + 256..4 + 256 + file_path_len as usize]; // 0th package reserve 256 bytes for file metadata
 
                 let _file_mode = frame.meta().id; // Id means file_mode here
                 if *file_mode != _file_mode {
