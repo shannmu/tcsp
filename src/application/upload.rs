@@ -147,7 +147,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
 
                     // Step 2. write the file
                     let mut file = tokio::io::BufWriter::new(file);
-                    for i in 0..data_frame_sum {
+                    for i in 1..=data_frame_sum {
                         let data = self.buffer.lock().await;
                         let data = data.get(&i).expect("Invalid frame id");
                         file.write_all(data).await?;
