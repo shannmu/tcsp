@@ -41,6 +41,7 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                         let mut response =
                             Frame::new_from_slice(Self::APPLICATION_ID, &[0xEE], true)?;
                         response.set_meta_from_request(frame.meta());
+                        response.set_len(1)?;
                         *state = DownloadState::DownloadStart;
                         return Ok(Some(response));
                     }
@@ -80,6 +81,7 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 let mut response =
                     Frame::new_from_slice(Self::APPLICATION_ID, &response_data, true)?;
                 response.set_meta_from_request(frame.meta());
+                response.set_len((4 + first_chunk.len()) as u16)?;
                 *state = DownloadState::Downloading((file_mode, file_path, 1, chunck_sum));
                 Ok(Some(response))
             }
@@ -109,6 +111,7 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 let mut response =
                     Frame::new_from_slice(Self::APPLICATION_ID, &response_data, true)?;
                 response.set_meta_from_request(frame.meta());
+                response.set_len((4 + file_content.len()) as u16)?;
                 if *chunk_id == *chunk_sum - 1 {
                     *state = DownloadState::DownloadStart;
                 } else {
