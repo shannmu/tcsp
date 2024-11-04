@@ -83,7 +83,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                         log::info!("file opened, file_path:{:?}", file_path);
                         self.file.lock().await.replace(file);
                         let mut response =
-                            Frame::new_from_slice(Self::APPLICATION_ID, &[0xAA], true)?;
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[0x00, 0x00, 0xAA], true)?;
                         response.set_meta_from_request(frame.meta());
                         response.set_len(1)?;
                         *state = UploadState::Uploading((*file_mode, file_path));
