@@ -31,7 +31,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
         let state = guard.as_mut();
         match state {
             UploadState::UploadStart => {
-                let file_mode = frame.data()[0]; // data_tpye means file mode here
+                let file_mode = frame.meta().id; // data_tpye means file mode here
                 let mut response =
                     Frame::new_from_slice(Self::APPLICATION_ID, &[file_mode, 0xAA], true)?;
                 response.set_meta_from_request(frame.meta());
@@ -67,7 +67,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                     let mut response =
                         Frame::new_from_slice(Self::APPLICATION_ID, &[0x00, 0x00, 0xEE], true)?;
                     response.set_meta_from_request(frame.meta());
-                    response.set_len(1)?;
+                    response.set_len(3)?;
                     *state = UploadState::UploadStart;
                     return Ok(Some(response));
                 }
@@ -117,8 +117,8 @@ impl<F: Fallback> Application for UploadCommand<F> {
                     ));
                 }
 
-                let data_frame_id = u16::from_be_bytes([data[1], data[2]]);
-                let data_frame_sum = u16::from_be_bytes([data[3], data[4]]) - 1; // NOTE: The first frame is used to pass the file path
+                let data_frame_id = u16::from_be_bytes([data[0], data[1]]);
+                let data_frame_sum = u16::from_be_bytes([data[2], data[3]]) - 1; // NOTE: The first frame is used to pass the file path
 
                 // Insert data into buffer
                 self.buffer
@@ -127,7 +127,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                     .insert(data_frame_id, data[4..].to_vec()); // NOTE: The first 4 bytes are used to pass the frame id and frame sum
 
                 let mut response =
-                    Frame::new_from_slice(Self::APPLICATION_ID, &[data[1], data[2], 0xAA], true)?;
+                    Frame::new_from_slice(Self::APPLICATION_ID, &[data[0], data[1], 0xAA], true)?;
                 response.set_meta_from_request(frame.meta());
                 response.set_len(3)?;
 
