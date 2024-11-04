@@ -64,7 +64,8 @@ impl<F: Fallback> Application for UploadCommand<F> {
                 // Return an error if the file already exists
                 if std::path::Path::new(&file_path).exists() && *force != 1 {
                     log::error!("file already exists, file_path:{:?}", file_path);
-                    let mut response = Frame::new_from_slice(Self::APPLICATION_ID, &[0xEE], true)?;
+                    let mut response =
+                        Frame::new_from_slice(Self::APPLICATION_ID, &[0x00, 0x00, 0xEE], true)?;
                     response.set_meta_from_request(frame.meta());
                     response.set_len(1)?;
                     *state = UploadState::UploadStart;
@@ -96,7 +97,7 @@ impl<F: Fallback> Application for UploadCommand<F> {
                             e
                         );
                         let mut response =
-                            Frame::new_from_slice(Self::APPLICATION_ID, &[0xEE], true)?;
+                            Frame::new_from_slice(Self::APPLICATION_ID, &[0x00, 0x00, 0xEE], true)?;
                         response.set_meta_from_request(frame.meta());
                         response.set_len(1)?;
                         *state = UploadState::UploadStart;
