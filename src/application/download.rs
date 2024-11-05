@@ -33,9 +33,7 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 let file_mode = frame.meta().id;
                 let data = frame.data();
 
-                let file_path = String::from_utf8("/home/shanmu/upload_test".bytes().collect())
-                    .expect("Invalid file path");
-                //let file_path = String::from_utf8(data.to_vec()).expect("Invalid file path");
+                let file_path = String::from_utf8(data.to_vec()).expect("Invalid file path");
 
                 {
                     let file_path = std::path::PathBuf::from(file_path.clone());
