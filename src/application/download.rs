@@ -160,6 +160,7 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                     log::error!("Invalid chunk id from the last response.");
                 }
                 *state = DownloadState::DownloadStart;
+                self.buffer.lock().await.clear();
                 Ok(None)
             }
         }
