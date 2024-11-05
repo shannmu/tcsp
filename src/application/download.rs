@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use serialport::DataBits;
 use tokio::sync::Mutex;
 
 use super::{Application, Fallback, Frame};
@@ -18,6 +17,9 @@ enum DownloadState {
 
     // (file_mode, file_path, chunk_id(next), chunk_sum)
     Downloading((u8, String, u16, u16)),
+
+    // (file_mode, chund_id(last))
+    DownloadDone((u8, u16)),
 }
 
 #[async_trait]
@@ -31,7 +33,9 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 let file_mode = frame.meta().id;
                 let data = frame.data();
 
-                let file_path = String::from_utf8(data.to_vec()).expect("Invalid file path");
+                let file_path = String::from_utf8("/home/shanmu/upload_test".bytes().collect())
+                    .expect("Invalid file path");
+                //let file_path = String::from_utf8(data.to_vec()).expect("Invalid file path");
 
                 {
                     let file_path = std::path::PathBuf::from(file_path.clone());
@@ -91,14 +95,37 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 let _file_mode = frame.meta().id;
                 if *file_mode != _file_mode {
                     log::error!("data type mismatch in Downloading");
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "data type mismatch",
-                    ));
+
+                    let mut response = Frame::new_from_slice(
+                        Self::APPLICATION_ID,
+                        &[data[0], data[1], 0xEE],
+                        true,
+                    )?;
+                    response.set_meta_from_request(frame.meta());
+                    response.set_len(3)?;
+                    *state = DownloadState::DownloadStart;
+                    return Ok(Some(response));
+                }
+
+                // Check the chunk id
+                let _chunk_id = u16::from_be_bytes([data[0], data[1]]);
+                if _chunk_id != *chunk_id - 1 {
+                    log::error!("Invalid chunk id from response");
+                    let mut response = Frame::new_from_slice(
+                        Self::APPLICATION_ID,
+                        &[data[0], data[1], 0xEE],
+                        true,
+                    )?;
+                    response.set_meta_from_request(frame.meta());
+                    response.set_len(3)?;
+                    *state = DownloadState::DownloadStart;
+                    return Ok(Some(response));
                 }
 
                 let buffer = self.buffer.lock().await;
-                let file_content = buffer.get(&chunk_id).expect("Invalid frame id");
+                let file_content = buffer
+                    .get(&chunk_id)
+                    .expect("Invalid chunk id for buffer getter");
 
                 let mut response_data = vec![
                     u16::to_be_bytes(*chunk_id)[0],
@@ -113,7 +140,7 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                 response.set_meta_from_request(frame.meta());
                 response.set_len((4 + file_content.len()) as u16)?;
                 if *chunk_id == *chunk_sum - 1 {
-                    *state = DownloadState::DownloadStart;
+                    *state = DownloadState::DownloadDone((*file_mode, *chunk_id));
                 } else {
                     *state = DownloadState::Downloading((
                         *file_mode,
@@ -123,6 +150,19 @@ impl<F: Fallback> Application for DownloadCommand<F> {
                     ));
                 }
                 Ok(Some(response))
+            }
+
+            DownloadState::DownloadDone((file_mode, chunk_id)) => {
+                // Check the response
+                let data = frame.data();
+                let _file_mode = frame.meta().id;
+                let _chunk_id = u16::from_be_bytes([data[0], data[1]]);
+
+                if _chunk_id != *chunk_id {
+                    log::error!("Invalid chunk id from the last response.");
+                }
+                *state = DownloadState::DownloadStart;
+                Ok(None)
             }
         }
     }
